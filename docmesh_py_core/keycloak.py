@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .config import ConfigError, Settings
+from .config import Settings
 from .security import mask_sensitive_value
 
 
@@ -33,6 +33,15 @@ class KeycloakHttpClient(Protocol):
         *,
         data: dict[str, str],
         headers: dict[str, str],
+        timeout: int,
+        verify_ssl: bool,
+    ) -> dict[str, Any]: ...
+
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
         timeout: int,
         verify_ssl: bool,
     ) -> dict[str, Any]: ...
@@ -106,12 +115,36 @@ class _UrllibKeycloakHttpClient:
     ) -> dict[str, Any]:
         encoded = urlencode(data).encode("utf-8")
         request = Request(url, data=encoded, headers=headers, method="POST")
-        context = None
-        if url.startswith("https://"):
-            context = ssl.create_default_context()
-            if not verify_ssl:
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
+        context = _build_ssl_context(url, verify_ssl)
+
+        try:
+            with urlopen(request, timeout=timeout, context=context) as response:
+                body = response.read().decode("utf-8")
+                return {
+                    "status_code": getattr(response, "status", response.getcode()),
+                    "json": _safe_json_loads(body),
+                    "text": body,
+                }
+        except HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            return {
+                "status_code": exc.code,
+                "json": _safe_json_loads(body),
+                "text": body,
+            }
+        except URLError as exc:
+            raise KeycloakTokenTemporaryError(mask_sensitive_value(str(exc.reason)) or "temporary network failure") from exc
+
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: int,
+        verify_ssl: bool,
+    ) -> dict[str, Any]:
+        request = Request(url, headers=headers or {}, method="GET")
+        context = _build_ssl_context(url, verify_ssl)
 
         try:
             with urlopen(request, timeout=timeout, context=context) as response:
@@ -190,6 +223,7 @@ class KeycloakAuthService:
         self.http_client = http_client or _UrllibKeycloakHttpClient()
         self.verification_key = verification_key
         self.allowed_algorithms = allowed_algorithms or ["HS256"]
+        self._jwks_cache: dict[str, Any] | None = None
 
     def fetch_access_token(self, *, scope: str | None = None) -> AccessTokenResult:
         config = self.settings.keycloak
@@ -247,7 +281,7 @@ class KeycloakAuthService:
         algorithm = header.get("alg")
         if algorithm not in self.allowed_algorithms:
             raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
-        self._verify_signature(algorithm, signing_input, signature)
+        self._verify_signature(header, signing_input, signature)
         self._validate_registered_claims(claims)
 
         subject = claims.get("sub") or claims.get("jti")
@@ -285,7 +319,12 @@ class KeycloakAuthService:
     def token_endpoint(self) -> str:
         return f"{self.issuer}/protocol/openid-connect/token"
 
-    def _verify_signature(self, algorithm: str | None, signing_input: bytes, signature: bytes) -> None:
+    @property
+    def jwks_endpoint(self) -> str:
+        return f"{self.issuer}/protocol/openid-connect/certs"
+
+    def _verify_signature(self, header: dict[str, Any], signing_input: bytes, signature: bytes) -> None:
+        algorithm = header.get("alg")
         if algorithm == "HS256":
             if self.verification_key is None:
                 raise TokenValidationError("Verification key is required for HS256 token validation")
@@ -297,7 +336,41 @@ class KeycloakAuthService:
             if not hmac.compare_digest(expected, signature):
                 raise TokenValidationError("JWT signature validation failed")
             return
+        if algorithm == "RS256":
+            jwk = self._select_jwk(header)
+            _verify_rs256_signature(signing_input, signature, jwk)
+            return
         raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
+
+    def _select_jwk(self, header: dict[str, Any]) -> dict[str, Any]:
+        kid = header.get("kid")
+        if not kid:
+            raise TokenValidationError("JWT header is missing key id")
+        jwks = self._get_jwks()
+        keys = jwks.get("keys")
+        if not isinstance(keys, list):
+            raise TokenValidationError("JWKS response is invalid")
+        for candidate in keys:
+            if isinstance(candidate, dict) and candidate.get("kid") == kid:
+                return candidate
+        raise TokenValidationError(f"No JWKS key found for kid: {kid}")
+
+    def _get_jwks(self) -> dict[str, Any]:
+        if self._jwks_cache is not None:
+            return self._jwks_cache
+        response = self.http_client.get(
+            self.jwks_endpoint,
+            headers={"Accept": "application/json"},
+            timeout=self.settings.keycloak.request_timeout_seconds,
+            verify_ssl=self.settings.keycloak.verify_ssl,
+        )
+        status_code = int(response.get("status_code", 0))
+        body = response.get("json")
+        if status_code < 200 or status_code >= 300 or not isinstance(body, dict):
+            detail = _mask_error_detail(response.get("text") or body or "jwks fetch failed")
+            raise TokenValidationError(f"Failed to load JWKS: {detail}")
+        self._jwks_cache = body
+        return body
 
     def _validate_registered_claims(self, claims: dict[str, Any]) -> None:
         issuer = claims.get("iss")
@@ -334,6 +407,16 @@ def _strip_bearer_prefix(token: str) -> str:
     return stripped
 
 
+def _build_ssl_context(url: str, verify_ssl: bool) -> ssl.SSLContext | None:
+    if not url.startswith("https://"):
+        return None
+    context = ssl.create_default_context()
+    if not verify_ssl:
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    return context
+
+
 def _split_jwt(token: str) -> tuple[dict[str, Any], dict[str, Any], bytes, bytes]:
     parts = token.split(".")
     if len(parts) != 3:
@@ -364,6 +447,39 @@ def _normalize_roles(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value]
+
+
+def _verify_rs256_signature(signing_input: bytes, signature: bytes, jwk: dict[str, Any]) -> None:
+    if jwk.get("kty") != "RSA":
+        raise TokenValidationError("JWKS key type must be RSA for RS256 validation")
+    modulus_encoded = jwk.get("n")
+    exponent_encoded = jwk.get("e")
+    if not isinstance(modulus_encoded, str) or not isinstance(exponent_encoded, str):
+        raise TokenValidationError("JWKS RSA key is missing modulus or exponent")
+
+    modulus = int.from_bytes(_b64url_decode_bytes(modulus_encoded), "big")
+    exponent = int.from_bytes(_b64url_decode_bytes(exponent_encoded), "big")
+    if modulus <= 0 or exponent <= 0:
+        raise TokenValidationError("JWKS RSA key is invalid")
+
+    signature_int = int.from_bytes(signature, "big")
+    expected_length = (modulus.bit_length() + 7) // 8
+    decrypted = pow(signature_int, exponent, modulus).to_bytes(expected_length, "big")
+    digest = hashlib.sha256(signing_input).digest()
+    expected_digest_info = bytes.fromhex("3031300d060960864801650304020105000420") + digest
+
+    if len(decrypted) < len(expected_digest_info) + 11:
+        raise TokenValidationError("JWT signature validation failed")
+    if not decrypted.startswith(b"\x00\x01"):
+        raise TokenValidationError("JWT signature validation failed")
+    separator_index = decrypted.find(b"\x00", 2)
+    if separator_index < 10:
+        raise TokenValidationError("JWT signature validation failed")
+    padding = decrypted[2:separator_index]
+    if any(byte != 0xFF for byte in padding):
+        raise TokenValidationError("JWT signature validation failed")
+    if decrypted[separator_index + 1 :] != expected_digest_info:
+        raise TokenValidationError("JWT signature validation failed")
 
 
 def _optional_str(value: Any) -> str | None:
