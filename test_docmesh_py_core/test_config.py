@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from pydantic_settings import BaseSettings
+
 from docmesh_py_core.config import (
     ConfigError,
     KeycloakConfig,
@@ -220,6 +222,30 @@ def test_ssl_verification_cannot_be_disabled_in_production():
 
     assert "production" in str(exc_info.value)
     assert "SSL verification" in str(exc_info.value)
+
+
+def test_config_classes_are_backed_by_pydantic_settings():
+    assert issubclass(KeycloakConfig, BaseSettings)
+    assert issubclass(PostgresConfig, BaseSettings)
+    assert issubclass(LangfuseConfig, BaseSettings)
+    assert issubclass(NatsConfig, BaseSettings)
+
+
+def test_keycloak_config_can_be_built_directly_from_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("KEYCLOAK_URL", "https://kc.example.com")
+    monkeypatch.setenv("KEYCLOAK_REALM", "docmesh")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "backend")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_REDIRECT_URIS", "https://app.example.com/callback, https://admin.example.com/callback")
+
+    config = KeycloakConfig()
+
+    assert config.url == "https://kc.example.com"
+    assert config.realm == "docmesh"
+    assert config.client_id == "backend"
+    assert config.client_redirect_uris == [
+        "https://app.example.com/callback",
+        "https://admin.example.com/callback",
+    ]
 
 
 @pytest.mark.parametrize(
