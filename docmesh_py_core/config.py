@@ -15,7 +15,12 @@ SettingsT = TypeVar("SettingsT", bound="DocmeshBaseSettings")
 
 
 class DocmeshBaseSettings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore", case_sensitive=True)
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
+
+    @classmethod
+    def env_key(cls, field_name: str) -> str:
+        prefix = cls.model_config.get("env_prefix", "")
+        return f"{prefix}{field_name.upper()}"
 
     @field_validator("*", mode="before")
     @classmethod
@@ -35,7 +40,7 @@ class DocmeshBaseSettings(BaseSettings):
                 return True
             if lowered == "false":
                 return False
-        raise ValueError(f"{field_name} must be 'true' or 'false'")
+        raise ValueError(f"{cls.env_key(field_name)} must be 'true' or 'false'")
 
     @classmethod
     def _parse_csv(cls, value: Any) -> list[str]:
@@ -49,38 +54,42 @@ class DocmeshBaseSettings(BaseSettings):
 
 
 class CommonConfig(DocmeshBaseSettings):
-    env: str = Field(default="development", validation_alias="DOCMESH_ENV")
-    healthcheck_enabled: bool = Field(default=True, validation_alias="DOCMESH_HEALTHCHECK_ENABLED")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="DOCMESH_")
+
+    env: str = "development"
+    healthcheck_enabled: bool = True
 
     @field_validator("healthcheck_enabled", mode="before")
     @classmethod
     def parse_healthcheck_enabled(cls, value: Any) -> Any:
-        return cls._parse_bool(value, "DOCMESH_HEALTHCHECK_ENABLED")
+        return cls._parse_bool(value, "healthcheck_enabled")
 
 
 class KeycloakConfig(DocmeshBaseSettings):
-    url: str = Field(validation_alias="KEYCLOAK_URL")
-    realm: str = Field(validation_alias="KEYCLOAK_REALM")
-    client_id: str = Field(validation_alias="KEYCLOAK_CLIENT_ID")
-    client_secret: str | None = Field(default=None, validation_alias="KEYCLOAK_CLIENT_SECRET")
-    verify_ssl: bool = Field(default=True, validation_alias="KEYCLOAK_VERIFY_SSL")
-    audience: str | None = Field(default=None, validation_alias="KEYCLOAK_AUDIENCE")
-    request_timeout_seconds: int = Field(default=10, ge=1, validation_alias="KEYCLOAK_REQUEST_TIMEOUT_SECONDS")
-    max_retries: int = Field(default=3, ge=0, validation_alias="KEYCLOAK_MAX_RETRIES")
-    provisioning_enabled: bool = Field(default=False, validation_alias="KEYCLOAK_PROVISIONING_ENABLED")
-    provisioning_dry_run: bool = Field(default=False, validation_alias="KEYCLOAK_PROVISIONING_DRY_RUN")
-    admin_realm: str = Field(default="master", validation_alias="KEYCLOAK_ADMIN_REALM")
-    admin_client_id: str = Field(default="admin-cli", validation_alias="KEYCLOAK_ADMIN_CLIENT_ID")
-    admin_client_secret: str | None = Field(default=None, validation_alias="KEYCLOAK_ADMIN_CLIENT_SECRET")
-    admin_username: str | None = Field(default=None, validation_alias="KEYCLOAK_ADMIN_USERNAME")
-    admin_password: str | None = Field(default=None, validation_alias="KEYCLOAK_ADMIN_PASSWORD")
-    realm_enabled: bool = Field(default=True, validation_alias="KEYCLOAK_REALM_ENABLED")
-    realm_display_name: str | None = Field(default=None, validation_alias="KEYCLOAK_REALM_DISPLAY_NAME")
-    client_public: bool = Field(default=False, validation_alias="KEYCLOAK_CLIENT_PUBLIC")
-    client_redirect_uris: CsvList = Field(default_factory=list, validation_alias="KEYCLOAK_CLIENT_REDIRECT_URIS")
-    client_web_origins: CsvList = Field(default_factory=list, validation_alias="KEYCLOAK_CLIENT_WEB_ORIGINS")
-    realm_roles: CsvList = Field(default_factory=list, validation_alias="KEYCLOAK_REALM_ROLES")
-    client_roles: CsvList = Field(default_factory=list, validation_alias="KEYCLOAK_CLIENT_ROLES")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="KEYCLOAK_")
+
+    url: str
+    realm: str
+    client_id: str
+    client_secret: str | None = None
+    verify_ssl: bool = True
+    audience: str | None = None
+    request_timeout_seconds: int = Field(default=10, ge=1)
+    max_retries: int = Field(default=3, ge=0)
+    provisioning_enabled: bool = False
+    provisioning_dry_run: bool = False
+    admin_realm: str = "master"
+    admin_client_id: str = "admin-cli"
+    admin_client_secret: str | None = None
+    admin_username: str | None = None
+    admin_password: str | None = None
+    realm_enabled: bool = True
+    realm_display_name: str | None = None
+    client_public: bool = False
+    client_redirect_uris: CsvList = Field(default_factory=list)
+    client_web_origins: CsvList = Field(default_factory=list)
+    realm_roles: CsvList = Field(default_factory=list)
+    client_roles: CsvList = Field(default_factory=list)
 
     @field_validator(
         "verify_ssl",
@@ -92,7 +101,7 @@ class KeycloakConfig(DocmeshBaseSettings):
     )
     @classmethod
     def parse_boolean_fields(cls, value: Any, info) -> Any:
-        return cls._parse_bool(value, info.field_name.upper())
+        return cls._parse_bool(value, info.field_name)
 
     @field_validator(
         "client_redirect_uris",
@@ -106,6 +115,18 @@ class KeycloakConfig(DocmeshBaseSettings):
         return cls._parse_csv(value)
 
     @model_validator(mode="after")
+    def validate_required_fields(self) -> "KeycloakConfig":
+        required_fields = {
+            self.env_key("url"): self.url,
+            self.env_key("realm"): self.realm,
+            self.env_key("client_id"): self.client_id,
+        }
+        missing = [name for name, value in required_fields.items() if value is None]
+        if missing:
+            raise ValueError(f"Missing required environment variable: {missing[0]}")
+        return self
+
+    @model_validator(mode="after")
     def validate_provisioning_auth_mode(self) -> "KeycloakConfig":
         if self.provisioning_enabled:
             has_service_account = bool(self.admin_client_secret)
@@ -116,26 +137,28 @@ class KeycloakConfig(DocmeshBaseSettings):
 
 
 class PostgresConfig(DocmeshBaseSettings):
-    dsn: str | None = Field(default=None, validation_alias="POSTGRES_DSN")
-    host: str | None = Field(default=None, validation_alias="POSTGRES_HOST")
-    port: int = Field(default=5432, ge=1, validation_alias="POSTGRES_PORT")
-    db: str | None = Field(default=None, validation_alias="POSTGRES_DB")
-    user: str | None = Field(default=None, validation_alias="POSTGRES_USER")
-    password: str | None = Field(default=None, validation_alias="POSTGRES_PASSWORD")
-    sslmode: str = Field(default="prefer", validation_alias="POSTGRES_SSLMODE")
-    connect_timeout_seconds: int = Field(default=10, ge=1, validation_alias="POSTGRES_CONNECT_TIMEOUT_SECONDS")
-    pool_size: int = Field(default=5, ge=1, validation_alias="POSTGRES_POOL_SIZE")
-    max_overflow: int = Field(default=10, ge=0, validation_alias="POSTGRES_MAX_OVERFLOW")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="POSTGRES_")
+
+    dsn: str | None = None
+    host: str | None = None
+    port: int = Field(default=5432, ge=1)
+    db: str | None = None
+    user: str | None = None
+    password: str | None = None
+    sslmode: str = "prefer"
+    connect_timeout_seconds: int = Field(default=10, ge=1)
+    pool_size: int = Field(default=5, ge=1)
+    max_overflow: int = Field(default=10, ge=0)
 
     @model_validator(mode="after")
     def validate_connection_shape(self) -> "PostgresConfig":
         if self.dsn:
             return self
         required_fields = {
-            "POSTGRES_HOST": self.host,
-            "POSTGRES_DB": self.db,
-            "POSTGRES_USER": self.user,
-            "POSTGRES_PASSWORD": self.password,
+            self.env_key("host"): self.host,
+            self.env_key("db"): self.db,
+            self.env_key("user"): self.user,
+            self.env_key("password"): self.password,
         }
         missing = [name for name, value in required_fields.items() if value is None]
         if missing:
@@ -144,68 +167,100 @@ class PostgresConfig(DocmeshBaseSettings):
 
 
 class MinioConfig(DocmeshBaseSettings):
-    endpoint: str = Field(validation_alias="MINIO_ENDPOINT")
-    access_key: str = Field(validation_alias="MINIO_ACCESS_KEY")
-    secret_key: str = Field(validation_alias="MINIO_SECRET_KEY")
-    secure: bool = Field(default=True, validation_alias="MINIO_SECURE")
-    region: str | None = Field(default=None, validation_alias="MINIO_REGION")
-    bucket: str | None = Field(default=None, validation_alias="MINIO_BUCKET")
-    request_timeout_seconds: int = Field(default=30, ge=1, validation_alias="MINIO_REQUEST_TIMEOUT_SECONDS")
-    max_retries: int = Field(default=3, ge=0, validation_alias="MINIO_MAX_RETRIES")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="MINIO_")
+
+    endpoint: str
+    access_key: str
+    secret_key: str
+    secure: bool = True
+    region: str | None = None
+    bucket: str | None = None
+    request_timeout_seconds: int = Field(default=30, ge=1)
+    max_retries: int = Field(default=3, ge=0)
 
     @field_validator("secure", mode="before")
     @classmethod
     def parse_secure(cls, value: Any) -> Any:
-        return cls._parse_bool(value, "MINIO_SECURE")
+        return cls._parse_bool(value, "secure")
+
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> "MinioConfig":
+        required_fields = {
+            self.env_key("endpoint"): self.endpoint,
+            self.env_key("access_key"): self.access_key,
+            self.env_key("secret_key"): self.secret_key,
+        }
+        missing = [name for name, value in required_fields.items() if value is None]
+        if missing:
+            raise ValueError(f"Missing required environment variable: {missing[0]}")
+        return self
 
 
 class MilvusConfig(DocmeshBaseSettings):
-    uri: str = Field(validation_alias="MILVUS_URI")
-    token: str | None = Field(default=None, validation_alias="MILVUS_TOKEN")
-    db_name: str = Field(default="default", validation_alias="MILVUS_DB_NAME")
-    collection: str | None = Field(default=None, validation_alias="MILVUS_COLLECTION")
-    secure: bool = Field(default=False, validation_alias="MILVUS_SECURE")
-    connect_timeout_seconds: int = Field(default=10, ge=1, validation_alias="MILVUS_CONNECT_TIMEOUT_SECONDS")
-    request_timeout_seconds: int = Field(default=30, ge=1, validation_alias="MILVUS_REQUEST_TIMEOUT_SECONDS")
-    max_retries: int = Field(default=3, ge=0, validation_alias="MILVUS_MAX_RETRIES")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="MILVUS_")
+
+    uri: str
+    token: str | None = None
+    db_name: str = "default"
+    collection: str | None = None
+    secure: bool = False
+    connect_timeout_seconds: int = Field(default=10, ge=1)
+    request_timeout_seconds: int = Field(default=30, ge=1)
+    max_retries: int = Field(default=3, ge=0)
 
     @field_validator("secure", mode="before")
     @classmethod
     def parse_secure(cls, value: Any) -> Any:
-        return cls._parse_bool(value, "MILVUS_SECURE")
+        return cls._parse_bool(value, "secure")
+
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> "MilvusConfig":
+        if self.uri is None:
+            raise ValueError(f"Missing required environment variable: {self.env_key('uri')}")
+        return self
 
 
 class OllamaConfig(DocmeshBaseSettings):
-    host: str = Field(validation_alias="OLLAMA_HOST")
-    generation_model: str | None = Field(default=None, validation_alias="OLLAMA_GENERATION_MODEL")
-    embedding_model: str | None = Field(default=None, validation_alias="OLLAMA_EMBEDDING_MODEL")
-    request_timeout_seconds: int = Field(default=120, ge=1, validation_alias="OLLAMA_REQUEST_TIMEOUT_SECONDS")
-    max_retries: int = Field(default=2, ge=0, validation_alias="OLLAMA_MAX_RETRIES")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="OLLAMA_")
+
+    host: str
+    generation_model: str | None = None
+    embedding_model: str | None = None
+    request_timeout_seconds: int = Field(default=120, ge=1)
+    max_retries: int = Field(default=2, ge=0)
+
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> "OllamaConfig":
+        if self.host is None:
+            raise ValueError(f"Missing required environment variable: {self.env_key('host')}")
+        return self
 
 
 class LangfuseConfig(DocmeshBaseSettings):
-    enabled: bool = Field(default=True, validation_alias="LANGFUSE_ENABLED")
-    host: str | None = Field(default=None, validation_alias="LANGFUSE_HOST")
-    public_key: str | None = Field(default=None, validation_alias="LANGFUSE_PUBLIC_KEY")
-    secret_key: str | None = Field(default=None, validation_alias="LANGFUSE_SECRET_KEY")
-    release: str | None = Field(default=None, validation_alias="LANGFUSE_RELEASE")
-    environment: str | None = Field(default=None, validation_alias="LANGFUSE_ENVIRONMENT")
-    request_timeout_seconds: int = Field(default=10, ge=1, validation_alias="LANGFUSE_REQUEST_TIMEOUT_SECONDS")
-    max_retries: int = Field(default=3, ge=0, validation_alias="LANGFUSE_MAX_RETRIES")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="LANGFUSE_")
+
+    enabled: bool = True
+    host: str | None = None
+    public_key: str | None = None
+    secret_key: str | None = None
+    release: str | None = None
+    environment: str | None = None
+    request_timeout_seconds: int = Field(default=10, ge=1)
+    max_retries: int = Field(default=3, ge=0)
 
     @field_validator("enabled", mode="before")
     @classmethod
     def parse_enabled(cls, value: Any) -> Any:
-        return cls._parse_bool(value, "LANGFUSE_ENABLED")
+        return cls._parse_bool(value, "enabled")
 
     @model_validator(mode="after")
     def validate_required_when_enabled(self) -> "LangfuseConfig":
         if not self.enabled:
             return self
         required_fields = {
-            "LANGFUSE_HOST": self.host,
-            "LANGFUSE_PUBLIC_KEY": self.public_key,
-            "LANGFUSE_SECRET_KEY": self.secret_key,
+            self.env_key("host"): self.host,
+            self.env_key("public_key"): self.public_key,
+            self.env_key("secret_key"): self.secret_key,
         }
         missing = [name for name, value in required_fields.items() if value is None]
         if missing:
@@ -214,14 +269,16 @@ class LangfuseConfig(DocmeshBaseSettings):
 
 
 class NatsConfig(DocmeshBaseSettings):
-    servers: CsvList = Field(validation_alias="NATS_SERVERS")
-    user: str | None = Field(default=None, validation_alias="NATS_USER")
-    password: str | None = Field(default=None, validation_alias="NATS_PASSWORD")
-    token: str | None = Field(default=None, validation_alias="NATS_TOKEN")
-    creds_file: str | None = Field(default=None, validation_alias="NATS_CREDS_FILE")
-    name: str = Field(default="docmesh-py-core", validation_alias="NATS_NAME")
-    connect_timeout_seconds: int = Field(default=10, ge=1, validation_alias="NATS_CONNECT_TIMEOUT_SECONDS")
-    max_reconnect_attempts: int = Field(default=10, ge=0, validation_alias="NATS_MAX_RECONNECT_ATTEMPTS")
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="NATS_")
+
+    servers: CsvList = Field(default_factory=list)
+    user: str | None = None
+    password: str | None = None
+    token: str | None = None
+    creds_file: str | None = None
+    name: str = "docmesh-py-core"
+    connect_timeout_seconds: int = Field(default=10, ge=1)
+    max_reconnect_attempts: int = Field(default=10, ge=0)
 
     @field_validator("servers", mode="before")
     @classmethod
@@ -245,22 +302,58 @@ class NatsConfig(DocmeshBaseSettings):
         return self
 
 
-class Settings(BaseModel):
-    common: CommonConfig
-    keycloak: KeycloakConfig
-    postgres: PostgresConfig
-    minio: MinioConfig
-    milvus: MilvusConfig
-    ollama: OllamaConfig
-    langfuse: LangfuseConfig
-    nats: NatsConfig
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
+
+    common: CommonConfig = Field(default_factory=lambda: CommonConfig())
+    keycloak: KeycloakConfig = Field(default_factory=lambda: KeycloakConfig())
+    postgres: PostgresConfig = Field(default_factory=lambda: PostgresConfig())
+    minio: MinioConfig = Field(default_factory=lambda: MinioConfig())
+    milvus: MilvusConfig = Field(default_factory=lambda: MilvusConfig())
+    ollama: OllamaConfig = Field(default_factory=lambda: OllamaConfig())
+    langfuse: LangfuseConfig = Field(default_factory=lambda: LangfuseConfig())
+    nats: NatsConfig = Field(default_factory=lambda: NatsConfig())
+
+    @model_validator(mode="after")
+    def apply_cross_service_defaults(self) -> "Settings":
+        if self.langfuse.environment is None:
+            self.langfuse.environment = self.common.env
+        _validate_security(self)
+        return self
+
+
+def _settings_kwargs_from_env(settings_cls: type[SettingsT], env: Mapping[str, str]) -> dict[str, Any]:
+    prefix = settings_cls.model_config.get("env_prefix", "")
+    kwargs: dict[str, Any] = {}
+    for field_name in settings_cls.model_fields:
+        env_key = f"{prefix}{field_name.upper()}"
+        if env_key in env:
+            kwargs[field_name] = env[env_key]
+    return kwargs
+
+
+def _rewrite_validation_message(settings_cls: type[SettingsT], exc: ValidationError) -> str:
+    rewritten_lines: list[str] = []
+    for error in exc.errors():
+        loc = error.get("loc", ())
+        field_name = loc[0] if loc else None
+        field_label = settings_cls.env_key(field_name) if isinstance(field_name, str) else str(field_name)
+        message = error.get("msg", "Invalid configuration")
+        if error.get("type") == "missing":
+            rewritten = f"Missing required environment variable: {field_label}"
+        elif field_name:
+            rewritten = f"{field_label}: {message}"
+        else:
+            rewritten = message
+        rewritten_lines.append(rewritten)
+    return "\n".join(dict.fromkeys(rewritten_lines))
 
 
 def _build_settings(settings_cls: type[SettingsT], env: Mapping[str, str]) -> SettingsT:
     try:
-        return settings_cls.model_validate(dict(env))
+        return settings_cls(**_settings_kwargs_from_env(settings_cls, env))
     except ValidationError as exc:
-        raise ConfigError(str(exc)) from exc
+        raise ConfigError(_rewrite_validation_message(settings_cls, exc)) from exc
 
 
 def _validate_security(settings: Settings) -> None:
@@ -272,15 +365,18 @@ def _validate_security(settings: Settings) -> None:
 
 def load_settings(env: Mapping[str, str]) -> Settings:
     common = _build_settings(CommonConfig, env)
-    settings = Settings(
-        common=common,
-        keycloak=_build_settings(KeycloakConfig, env),
-        postgres=_build_settings(PostgresConfig, env),
-        minio=_build_settings(MinioConfig, env),
-        milvus=_build_settings(MilvusConfig, env),
-        ollama=_build_settings(OllamaConfig, env),
-        langfuse=_build_settings(LangfuseConfig, {**dict(env), "LANGFUSE_ENVIRONMENT": env.get("LANGFUSE_ENVIRONMENT", common.env)}),
-        nats=_build_settings(NatsConfig, env),
-    )
-    _validate_security(settings)
-    return settings
+    langfuse_env = dict(env)
+    langfuse_env.setdefault("LANGFUSE_ENVIRONMENT", common.env)
+    try:
+        return Settings(
+            common=common,
+            keycloak=_build_settings(KeycloakConfig, env),
+            postgres=_build_settings(PostgresConfig, env),
+            minio=_build_settings(MinioConfig, env),
+            milvus=_build_settings(MilvusConfig, env),
+            ollama=_build_settings(OllamaConfig, env),
+            langfuse=_build_settings(LangfuseConfig, langfuse_env),
+            nats=_build_settings(NatsConfig, env),
+        )
+    except ValidationError as exc:
+        raise ConfigError(str(exc)) from exc

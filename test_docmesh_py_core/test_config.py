@@ -10,6 +10,7 @@ from docmesh_py_core.config import (
     LangfuseConfig,
     NatsConfig,
     PostgresConfig,
+    Settings,
     load_settings,
 )
 from docmesh_py_core.security import mask_sensitive_value
@@ -231,7 +232,15 @@ def test_config_classes_are_backed_by_pydantic_settings():
     assert issubclass(NatsConfig, BaseSettings)
 
 
-def test_keycloak_config_can_be_built_directly_from_environment(monkeypatch: pytest.MonkeyPatch):
+def test_service_configs_use_settings_config_prefixes_instead_of_validation_aliases(monkeypatch: pytest.MonkeyPatch):
+    assert KeycloakConfig.model_config.get("env_prefix") == "KEYCLOAK_"
+    assert PostgresConfig.model_config.get("env_prefix") == "POSTGRES_"
+    assert LangfuseConfig.model_config.get("env_prefix") == "LANGFUSE_"
+    assert NatsConfig.model_config.get("env_prefix") == "NATS_"
+    assert KeycloakConfig.model_fields["url"].validation_alias is None
+    assert KeycloakConfig.model_fields["realm"].validation_alias is None
+    assert KeycloakConfig.model_fields["client_id"].validation_alias is None
+
     monkeypatch.setenv("KEYCLOAK_URL", "https://kc.example.com")
     monkeypatch.setenv("KEYCLOAK_REALM", "docmesh")
     monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "backend")
@@ -246,6 +255,35 @@ def test_keycloak_config_can_be_built_directly_from_environment(monkeypatch: pyt
         "https://app.example.com/callback",
         "https://admin.example.com/callback",
     ]
+
+
+def test_settings_is_base_settings_aggregate_and_builds_from_environment(monkeypatch: pytest.MonkeyPatch):
+    assert issubclass(Settings, BaseSettings)
+
+    env_values = {
+        "KEYCLOAK_URL": "https://kc.example.com",
+        "KEYCLOAK_REALM": "docmesh",
+        "KEYCLOAK_CLIENT_ID": "backend",
+        "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+        "MINIO_ENDPOINT": "minio.example.com:9000",
+        "MINIO_ACCESS_KEY": "minio-access",
+        "MINIO_SECRET_KEY": "minio-secret",
+        "MILVUS_URI": "http://milvus.example.com:19530",
+        "OLLAMA_HOST": "http://ollama.example.com:11434",
+        "LANGFUSE_HOST": "https://langfuse.example.com",
+        "LANGFUSE_PUBLIC_KEY": "public-key",
+        "LANGFUSE_SECRET_KEY": "secret-key",
+        "NATS_SERVERS": "nats://n1:4222, nats://n2:4222",
+    }
+    for key, value in env_values.items():
+        monkeypatch.setenv(key, value)
+
+    settings = Settings()
+
+    assert settings.keycloak.url == "https://kc.example.com"
+    assert settings.postgres.dsn == "postgresql://user:***@db.example.com:5432/app"
+    assert settings.nats.servers == ["nats://n1:4222", "nats://n2:4222"]
+    assert settings.langfuse.environment == "development"
 
 
 @pytest.mark.parametrize(
