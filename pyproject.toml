@@ -1,0 +1,32 @@
+[project]
+name = "docmesh-py-core"
+version = "0.1.0"
+description = "Core utilities for DocMesh Python SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "langfuse>=4.7.1",
+    "minio>=7.2.20",
+    "nats-py>=2.15.0",
+    "ollama>=0.6.2",
+    "psycopg2[binary]>=2.9.12",
+    "pydantic-settings>=2.14.1",
+    "pyjwt[crypto]>=2.13.0",
+    "pymilvus>=3.0.0",
+    "sqlalchemy>=2.0.50",
+]
+
+[tool.setuptools.packages.find]
+include = ["docmesh_py_core*"]
+exclude = ["test_docmesh_py_core*"]
+
+[dependency-groups]
+dev = [
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["test_docmesh_py_core"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = ["integration: mark test as integration test (requires external services)"]
