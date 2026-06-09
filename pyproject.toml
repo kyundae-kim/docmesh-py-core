@@ -4,4 +4,13 @@ version = "0.1.0"
 description = "Core utilities for DocMesh Python SDK"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "langfuse>=4.7.1",
+    "minio>=7.2.20",
+    "nats-py>=2.15.0",
+    "ollama>=0.6.2",
+    "psycopg-binary>=3.3.4",
+    "pyjwt[crypto]>=2.13.0",
+    "pymilvus>=3.0.0",
+    "sqlalchemy>=2.0.50",
+]
