@@ -54,3 +54,7 @@ settings = load_settings({
 ```bash
 pytest -q test_docmesh_py_core
 ```
+
+## 문서
+- [설정 가이드](docs/config.md)
+- [테스트 가이드](docs/test.md)
