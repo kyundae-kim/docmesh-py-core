@@ -12,6 +12,7 @@ def _settings():
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
             "KEYCLOAK_CLIENT_ID": "backend",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
             "POSTGRES_HOST": "db.example.com",
             "POSTGRES_DB": "app",
             "POSTGRES_USER": "docmesh",

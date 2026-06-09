@@ -127,6 +127,12 @@ class KeycloakConfig(DocmeshBaseSettings):
         return self
 
     @model_validator(mode="after")
+    def validate_client_secret_requirements(self) -> "KeycloakConfig":
+        if not self.client_public and self.client_secret is None:
+            raise ValueError("Missing required environment variable: KEYCLOAK_CLIENT_SECRET")
+        return self
+
+    @model_validator(mode="after")
     def validate_provisioning_auth_mode(self) -> "KeycloakConfig":
         if self.provisioning_enabled:
             has_service_account = bool(self.admin_client_secret)

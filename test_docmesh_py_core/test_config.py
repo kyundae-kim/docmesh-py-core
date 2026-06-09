@@ -22,7 +22,8 @@ def test_load_settings_parses_required_services_and_defaults():
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
             "KEYCLOAK_CLIENT_ID": "backend",
-            "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
+            "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
             "MINIO_ENDPOINT": "minio.example.com:9000",
             "MINIO_ACCESS_KEY": "minio-access",
             "MINIO_SECRET_KEY": "minio-secret",
@@ -58,6 +59,7 @@ def test_load_settings_rejects_blank_required_values():
                 "KEYCLOAK_URL": "   ",
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
@@ -81,6 +83,7 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "KEYCLOAK_VERIFY_SSL": "yes",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
@@ -103,6 +106,7 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
                 "POSTGRES_POOL_SIZE": "0",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
@@ -120,6 +124,53 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
     assert "POSTGRES_POOL_SIZE" in str(range_exc_info.value)
 
 
+def test_keycloak_confidential_client_requires_client_secret():
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(
+            {
+                "KEYCLOAK_URL": "https://kc.example.com",
+                "KEYCLOAK_REALM": "docmesh",
+                "KEYCLOAK_CLIENT_ID": "backend",
+                "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+                "MINIO_ENDPOINT": "minio.example.com:9000",
+                "MINIO_ACCESS_KEY": "minio-access",
+                "MINIO_SECRET_KEY": "minio-secret",
+                "MILVUS_URI": "http://milvus.example.com:19530",
+                "OLLAMA_HOST": "http://ollama.example.com:11434",
+                "LANGFUSE_HOST": "https://langfuse.example.com",
+                "LANGFUSE_PUBLIC_KEY": "public-key",
+                "LANGFUSE_SECRET_KEY": "secret-key",
+                "NATS_SERVERS": "nats://n1:4222",
+            }
+        )
+
+    assert "KEYCLOAK_CLIENT_SECRET" in str(exc_info.value)
+
+
+def test_keycloak_public_client_allows_missing_client_secret():
+    settings = load_settings(
+        {
+            "KEYCLOAK_URL": "https://kc.example.com",
+            "KEYCLOAK_REALM": "docmesh",
+            "KEYCLOAK_CLIENT_ID": "backend",
+            "KEYCLOAK_CLIENT_PUBLIC": "true",
+            "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+            "MINIO_ENDPOINT": "minio.example.com:9000",
+            "MINIO_ACCESS_KEY": "minio-access",
+            "MINIO_SECRET_KEY": "minio-secret",
+            "MILVUS_URI": "http://milvus.example.com:19530",
+            "OLLAMA_HOST": "http://ollama.example.com:11434",
+            "LANGFUSE_HOST": "https://langfuse.example.com",
+            "LANGFUSE_PUBLIC_KEY": "public-key",
+            "LANGFUSE_SECRET_KEY": "secret-key",
+            "NATS_SERVERS": "nats://n1:4222",
+        }
+    )
+
+    assert settings.keycloak.client_public is True
+    assert settings.keycloak.client_secret is None
+
+
 def test_keycloak_provisioning_requires_single_admin_auth_mode():
     with pytest.raises(ConfigError) as exc_info:
         load_settings(
@@ -127,6 +178,7 @@ def test_keycloak_provisioning_requires_single_admin_auth_mode():
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "KEYCLOAK_PROVISIONING_ENABLED": "true",
                 "KEYCLOAK_ADMIN_CLIENT_SECRET": "secret",
                 "KEYCLOAK_ADMIN_USERNAME": "admin",
@@ -154,7 +206,8 @@ def test_langfuse_disabled_makes_credentials_optional():
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
             "KEYCLOAK_CLIENT_ID": "backend",
-            "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
+            "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
             "MINIO_ENDPOINT": "minio.example.com:9000",
             "MINIO_ACCESS_KEY": "minio-access",
             "MINIO_SECRET_KEY": "minio-secret",
@@ -177,6 +230,7 @@ def test_nats_allows_only_single_authentication_mode():
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
@@ -205,6 +259,7 @@ def test_ssl_verification_cannot_be_disabled_in_production():
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "KEYCLOAK_VERIFY_SSL": "false",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
@@ -244,6 +299,7 @@ def test_service_configs_use_settings_config_prefixes_instead_of_validation_alia
     monkeypatch.setenv("KEYCLOAK_URL", "https://kc.example.com")
     monkeypatch.setenv("KEYCLOAK_REALM", "docmesh")
     monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "backend")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("KEYCLOAK_CLIENT_REDIRECT_URIS", "https://app.example.com/callback, https://admin.example.com/callback")
 
     config = KeycloakConfig()
@@ -264,6 +320,7 @@ def test_settings_is_base_settings_aggregate_and_builds_from_environment(monkeyp
         "KEYCLOAK_URL": "https://kc.example.com",
         "KEYCLOAK_REALM": "docmesh",
         "KEYCLOAK_CLIENT_ID": "backend",
+        "KEYCLOAK_CLIENT_SECRET": "client-secret",
         "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
         "MINIO_ENDPOINT": "minio.example.com:9000",
         "MINIO_ACCESS_KEY": "minio-access",
