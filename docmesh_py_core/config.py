@@ -74,6 +74,10 @@ class KeycloakConfig(DocmeshBaseSettings):
     client_secret: str | None = None
     verify_ssl: bool = True
     audience: str | None = None
+    token_grant_type: str = "client_credentials"
+    token_scope: str | None = None
+    token_username: str | None = None
+    token_password: str | None = None
     request_timeout_seconds: int = Field(default=10, ge=1)
     max_retries: int = Field(default=3, ge=0)
     provisioning_enabled: bool = False
@@ -114,6 +118,16 @@ class KeycloakConfig(DocmeshBaseSettings):
     def parse_csv_fields(cls, value: Any) -> list[str]:
         return cls._parse_csv(value)
 
+    @field_validator("token_grant_type")
+    @classmethod
+    def validate_token_grant_type(cls, value: str) -> str:
+        allowed = {"client_credentials", "password"}
+        if value not in allowed:
+            raise ValueError(
+                f"{cls.env_key('token_grant_type')} must be one of: {', '.join(sorted(allowed))}"
+            )
+        return value
+
     @model_validator(mode="after")
     def validate_required_fields(self) -> "KeycloakConfig":
         required_fields = {
@@ -139,6 +153,13 @@ class KeycloakConfig(DocmeshBaseSettings):
             has_user_credentials = bool(self.admin_username and self.admin_password)
             if has_service_account == has_user_credentials:
                 raise ValueError("KEYCLOAK provisioning requires a single admin auth mode")
+        return self
+
+    @model_validator(mode="after")
+    def validate_token_grant_requirements(self) -> "KeycloakConfig":
+        if self.token_grant_type == "password" and not (self.token_username and self.token_password):
+            missing = "KEYCLOAK_TOKEN_USERNAME" if not self.token_username else "KEYCLOAK_TOKEN_PASSWORD"
+            raise ValueError(f"Missing required environment variable: {missing}")
         return self
 
 
