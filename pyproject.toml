@@ -29,4 +29,3 @@ testpaths = ["test_docmesh_py_core"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 markers = ["integration: mark test as integration test (requires external services)"]
-anyio_mode = "auto"
