@@ -44,6 +44,7 @@
 ### integration 테스트 방침
 
 - integration 테스트는 실제 네트워크, 실제 SDK, 테스트 컨테이너 또는 별도 테스트용 서비스에 연결한다.
+- 실행 조건은 별도 플래그가 아니라 `DOCMESH_ENV=integration` 같은 실행 환경 식별자를 기준으로 한다.
 - 단위 테스트와 동일한 시나리오를 반복하기보다, 실제 연결 가능 여부와 주요 실패 분류를 검증한다.
 - 기본 CI에서는 `unit`과 분리해 실행하고, 필요 시 브랜치/야간/릴리스 파이프라인에서만 활성화한다.
 - 실패 원인 분석을 위해 서비스 endpoint, 테스트 대상 환경, 사용한 marker를 로그에 남기되 secret/token/password는 제외한다.
@@ -278,8 +279,8 @@
 
 ```bash
 pytest -q -m "not integration"
-pytest -q -m integration
-pytest -q -m integration test_docmesh_py_core/test_keycloak_provisioning.py
+DOCMESH_ENV=integration .venv/bin/pytest -q -m integration
+DOCMESH_ENV=integration .venv/bin/pytest -q test_docmesh_py_core/test_integration_services.py
 ```
 
 ---

@@ -55,6 +55,15 @@ settings = load_settings({
 pytest -q test_docmesh_py_core
 ```
 
+integration 테스트는 실행 환경 식별자 기준으로 동작합니다.
+
+```bash
+DOCMESH_ENV=integration .venv/bin/pytest -q -m integration
+```
+
+`DOCMESH_ENV`가 `integration`이 아니면 실제 서비스 연결 integration 테스트는 skip 됩니다.
+
 ## 문서
+- [API 가이드](docs/api.md)
 - [설정 가이드](docs/config.md)
 - [테스트 가이드](docs/test.md)
