@@ -41,6 +41,14 @@
 - 네트워크, 인증, 시간 의존 로직은 deterministic fixture로 고정한다.
 - 토큰, 비밀번호, secret 값은 테스트 데이터라도 마스킹 검증 대상에 포함한다.
 
+### integration 테스트 방침
+
+- integration 테스트는 실제 네트워크, 실제 SDK, 테스트 컨테이너 또는 별도 테스트용 서비스에 연결한다.
+- 단위 테스트와 동일한 시나리오를 반복하기보다, 실제 연결 가능 여부와 주요 실패 분류를 검증한다.
+- 기본 CI에서는 `unit`과 분리해 실행하고, 필요 시 브랜치/야간/릴리스 파이프라인에서만 활성화한다.
+- 실패 원인 분석을 위해 서비스 endpoint, 테스트 대상 환경, 사용한 marker를 로그에 남기되 secret/token/password는 제외한다.
+- flaky 방지를 위해 timeout, 재시도, readiness 대기 조건을 명시한다.
+
 ---
 
 ## 테스트 범위
@@ -225,6 +233,41 @@
 - Langfuse 인증 check 실제 수행
 - NATS connect + ping/flush 실제 수행
 
+### 서비스별 권장 시나리오
+
+- **Keycloak**
+  - OIDC discovery 조회 성공
+  - token endpoint 실제 호출 성공
+  - provisioning dry-run / apply / idempotency 검증
+  - 잘못된 admin credential 사용 시 인증 오류 분류 확인
+- **PostgreSQL**
+  - `SELECT 1` 성공
+  - 잘못된 host 또는 credential로 연결 실패 분류 확인
+  - pool 생성 후 close/dispose 수행 확인
+- **MinIO**
+  - `list_buckets()` 또는 지정 bucket 존재 확인
+  - 잘못된 access/secret key로 인증 실패 확인
+- **Milvus**
+  - server 연결 및 collection/list 조회 성공
+  - 잘못된 token 또는 uri로 실패 분류 확인
+- **Ollama**
+  - health endpoint 또는 `ps/list` 성공
+  - host 미도달 시 timeout/connection error 확인
+- **Langfuse**
+  - `auth_check()` 또는 동등한 인증 검증 성공
+  - 비활성화 설정 시 integration 대상에서 제외 가능함을 확인
+- **NATS**
+  - connect 후 flush/ping 성공
+  - 재연결 옵션이 적용된 상태에서 초기 연결 실패 메시지 확인
+
+### 실행 환경 구성
+
+- 로컬 실행은 docker compose 또는 testcontainers 중 하나를 표준으로 정한다.
+- 서비스별 readiness 조건이 충족된 뒤 테스트를 시작한다.
+- integration 전용 env 파일 또는 CI secret을 사용하고, `.env.example`의 placeholder 값을 그대로 사용하지 않는다.
+- 테스트 데이터는 운영 계정이 아닌 전용 테스트 realm, bucket, database, client, token으로 분리한다.
+- 가능하면 테스트 종료 후 생성 리소스를 정리하되, Keycloak provisioning의 멱등성 확인에 필요한 최소 상태는 유지할 수 있다.
+
 권장 방식:
 
 - docker compose 또는 testcontainers 사용
@@ -236,6 +279,7 @@
 ```bash
 pytest -q -m "not integration"
 pytest -q -m integration
+pytest -q -m integration test_docmesh_py_core/test_keycloak_provisioning.py
 ```
 
 ---

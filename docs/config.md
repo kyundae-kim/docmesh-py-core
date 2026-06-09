@@ -32,6 +32,7 @@
 - 운영 환경에서는 TLS와 인증서 검증을 기본값으로 유지한다.
 - SSL 검증 비활성화는 개발/테스트에서만 허용하는 정책을 권장한다.
 - Langfuse 같은 선택 기능은 비활성화 가능해야 하며 핵심 서비스 장애와 분리한다.
+- integration 테스트는 운영 설정과 분리된 별도 테스트용 환경변수 세트를 사용한다.
 
 ---
 
@@ -46,6 +47,13 @@
 
 - 공통 timeout/retry/pool 설정은 제공하지 않는다.
 - timeout/retry는 반드시 서비스별 환경변수로 관리한다.
+
+### integration 테스트용 공통 권장값
+
+- `DOCMESH_ENV=integration` 또는 팀에서 합의한 별도 값 사용
+- `DOCMESH_HEALTHCHECK_ENABLED=true` 유지 권장
+- integration 테스트 전용 `.env.integration` 또는 CI secret 세트를 별도로 관리
+- 운영용 host, database, realm, bucket, credential을 재사용하지 않는다.
 
 ---
 
@@ -254,6 +262,9 @@
 
 아래 예시는 `.env.example`과 동일한 문서용 예시이며 실제 secret 값은 넣지 않는다.
 
+integration 테스트에서는 별도 `.env.integration` 또는 CI secret 세트를 사용하고,
+테스트 대상 서비스도 운영 자원과 분리한다.
+
 ```env
 DOCMESH_ENV=development
 DOCMESH_HEALTHCHECK_ENABLED=true
@@ -350,6 +361,7 @@ NATS_MAX_RECONNECT_ATTEMPTS=10
 - [ ] 조건부 필수 규칙이 문서와 코드에서 일치하는가
 - [ ] 민감정보 항목이 마스킹 정책 대상에 포함되는가
 - [ ] `.env.example`와 본 문서가 동기화되어 있는가
+- [ ] integration 테스트용 설정이 운영 설정과 분리되어 있는가
 - [ ] 테스트가 새 설정 항목을 검증하는가
 
 ---
