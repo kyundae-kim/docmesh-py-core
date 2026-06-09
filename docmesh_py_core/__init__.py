@@ -1,5 +1,5 @@
 from .config import ConfigError, Settings, load_settings
-from .factories import ServiceFactoryRegistry
+from .factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
 from .health import HealthCheckError, check_all_services
 from .keycloak import (
     AccessTokenResult,
@@ -25,6 +25,8 @@ __all__ = [
     "KeycloakTokenConfigurationError",
     "KeycloakTokenError",
     "KeycloakTokenTemporaryError",
+    "NatsConnectionBuilder",
+    "ServiceClientWrapper",
     "ServiceFactoryRegistry",
     "Settings",
     "TokenValidationError",

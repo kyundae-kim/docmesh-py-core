@@ -2,43 +2,46 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
+import inspect
 from typing import Any
 from urllib.parse import quote_plus
 
-try:
-    from langfuse import Langfuse
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in unit-test env
-    Langfuse = None
-
-try:
-    from minio import Minio
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in unit-test env
-    Minio = None
-
-try:
-    from nats import connect as nats_connect
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in unit-test env
-    nats_connect = None
-
-try:
-    from ollama import Client as OllamaClient
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in unit-test env
-    OllamaClient = None
-
-try:
-    from pymilvus import MilvusClient
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in unit-test env
-    MilvusClient = None
-
-try:
-    from sqlalchemy import create_engine
-except ModuleNotFoundError:  # pragma: no cover - optional dependency in unit-test env
-    create_engine = None
+from langfuse import Langfuse
+from minio import Minio
+from nats import connect as nats_connect
+from ollama import Client as OllamaClient
+from pymilvus import MilvusClient
+from sqlalchemy import create_engine
 
 from .config import KeycloakConfig, NatsConfig, PostgresConfig, Settings
 from .keycloak import KeycloakAuthService
 
 Builder = Callable[[Any], Any]
+HealthCheck = Callable[[], Any]
+
+
+@dataclass
+class ServiceClientWrapper:
+    client: Any
+    healthcheck: HealthCheck
+    close_fn: Callable[[], Any] | None = None
+
+    def ping(self) -> Any:
+        return self.healthcheck()
+
+    def check(self) -> Any:
+        return self.ping()
+
+    def close(self) -> Any:
+        if self.close_fn is not None:
+            return self.close_fn()
+        close_method = getattr(self.client, "close", None)
+        if callable(close_method):
+            return close_method()
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.client, name)
 
 
 @dataclass(frozen=True)
@@ -51,7 +54,7 @@ class NatsConnectionBuilder:
     password: str | None = None
     token: str | None = None
     creds_file: str | None = None
-    _connect_fn: Callable[..., Awaitable[Any]] | None = field(default=nats_connect, repr=False, compare=False)
+    _connect_fn: Callable[..., Awaitable[Any]] = field(default=nats_connect, repr=False, compare=False)
 
     @property
     def connect_kwargs(self) -> dict[str, Any]:
@@ -72,9 +75,23 @@ class NatsConnectionBuilder:
         return kwargs
 
     async def connect(self) -> Any:
-        if self._connect_fn is None:
-            raise ModuleNotFoundError("nats dependency is not installed")
-        return await self._connect_fn(**self.connect_kwargs)
+        result = self._connect_fn(**self.connect_kwargs)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def ping(self) -> Any:
+        client = await self.connect()
+        try:
+            flush_method = getattr(client, "flush", None)
+            if callable(flush_method):
+                await flush_method()
+            return client
+        finally:
+            await _close_async_client(client)
+
+    async def check(self) -> Any:
+        return await self.ping()
 
 
 @dataclass
@@ -105,7 +122,8 @@ class ServiceFactoryRegistry:
             raise KeyError(f"Unsupported service: {service_name}")
         if service_name not in self._clients:
             builder, config = self._builders[service_name]
-            self._clients[service_name] = builder(config)
+            built_client = builder(config)
+            self._clients[service_name] = self._wrap_client(service_name, built_client)
         return self._clients[service_name]
 
     def create_clients(self, services: Iterable[str]) -> dict[str, Any]:
@@ -117,13 +135,31 @@ class ServiceFactoryRegistry:
             if callable(close_method):
                 close_method()
 
-    def _build_keycloak_client(self, _: KeycloakConfig) -> KeycloakAuthService:
-        return KeycloakAuthService(self.settings)
+    def _wrap_client(self, service_name: str, client: Any) -> Any:
+        if client is None or isinstance(client, (ServiceClientWrapper, NatsConnectionBuilder)):
+            return client
+        if service_name == "keycloak":
+            return ServiceClientWrapper(client=client, healthcheck=client.fetch_access_token)
+        if service_name == "postgres":
+            return ServiceClientWrapper(client=client, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
+        if service_name == "minio":
+            return ServiceClientWrapper(client=client, healthcheck=client.list_buckets)
+        if service_name == "milvus":
+            return ServiceClientWrapper(client=client, healthcheck=client.list_collections)
+        if service_name == "ollama":
+            return ServiceClientWrapper(client=client, healthcheck=client.ps)
+        if service_name == "langfuse":
+            return ServiceClientWrapper(client=client, healthcheck=client.auth_check, close_fn=client.flush)
+        if service_name == "nats":
+            return client
+        raise KeyError(f"Unsupported service: {service_name}")
 
-    def _build_postgres_client(self, config: PostgresConfig) -> Any:
-        if create_engine is None:
-            raise ModuleNotFoundError("sqlalchemy dependency is not installed")
-        return create_engine(
+    def _build_keycloak_client(self, _: KeycloakConfig) -> ServiceClientWrapper:
+        client = KeycloakAuthService(self.settings)
+        return ServiceClientWrapper(client=client, healthcheck=client.fetch_access_token)
+
+    def _build_postgres_client(self, config: PostgresConfig) -> ServiceClientWrapper:
+        client = create_engine(
             _postgres_url(config),
             pool_size=config.pool_size,
             max_overflow=config.max_overflow,
@@ -132,11 +168,14 @@ class ServiceFactoryRegistry:
                 "sslmode": config.sslmode,
             },
         )
+        return ServiceClientWrapper(
+            client=client,
+            healthcheck=lambda: _check_postgres(client),
+            close_fn=client.dispose,
+        )
 
-    def _build_minio_client(self, config) -> Any:
-        if Minio is None:
-            raise ModuleNotFoundError("minio dependency is not installed")
-        return Minio(
+    def _build_minio_client(self, config) -> ServiceClientWrapper:
+        client = Minio(
             config.endpoint,
             access_key=config.access_key,
             secret_key=config.secret_key,
@@ -144,28 +183,25 @@ class ServiceFactoryRegistry:
             region=config.region,
             cert_check=config.secure,
         )
+        return ServiceClientWrapper(client=client, healthcheck=client.list_buckets)
 
-    def _build_milvus_client(self, config) -> Any:
-        if MilvusClient is None:
-            raise ModuleNotFoundError("pymilvus dependency is not installed")
-        return MilvusClient(
+    def _build_milvus_client(self, config) -> ServiceClientWrapper:
+        client = MilvusClient(
             uri=config.uri,
             token=config.token or "",
             db_name=config.db_name,
             timeout=config.request_timeout_seconds,
         )
+        return ServiceClientWrapper(client=client, healthcheck=client.list_collections)
 
-    def _build_ollama_client(self, config) -> Any:
-        if OllamaClient is None:
-            raise ModuleNotFoundError("ollama dependency is not installed")
-        return OllamaClient(host=config.host, timeout=config.request_timeout_seconds)
+    def _build_ollama_client(self, config) -> ServiceClientWrapper:
+        client = OllamaClient(host=config.host, timeout=config.request_timeout_seconds)
+        return ServiceClientWrapper(client=client, healthcheck=client.ps)
 
-    def _build_langfuse_client(self, config) -> Any:
+    def _build_langfuse_client(self, config) -> ServiceClientWrapper | None:
         if not config.enabled:
             return None
-        if Langfuse is None:
-            raise ModuleNotFoundError("langfuse dependency is not installed")
-        return Langfuse(
+        client = Langfuse(
             host=config.host,
             public_key=config.public_key,
             secret_key=config.secret_key,
@@ -174,6 +210,7 @@ class ServiceFactoryRegistry:
             release=config.release,
             tracing_enabled=True,
         )
+        return ServiceClientWrapper(client=client, healthcheck=client.auth_check, close_fn=client.flush)
 
     def _build_nats_client(self, config: NatsConfig) -> NatsConnectionBuilder:
         return NatsConnectionBuilder(
@@ -197,3 +234,22 @@ def _postgres_url(config: PostgresConfig) -> str:
     port = config.port
     database = config.db or ""
     return f"postgresql://{username}:{password}@{host}:{port}/{database}"
+
+
+def _check_postgres(client: Any) -> Any:
+    with client.connect() as connection:
+        return connection.exec_driver_sql("SELECT 1")
+
+
+async def _close_async_client(client: Any) -> None:
+    drain_method = getattr(client, "drain", None)
+    if callable(drain_method):
+        drain_result = drain_method()
+        if inspect.isawaitable(drain_result):
+            await drain_result
+            return
+    close_method = getattr(client, "close", None)
+    if callable(close_method):
+        close_result = close_method()
+        if inspect.isawaitable(close_result):
+            await close_result

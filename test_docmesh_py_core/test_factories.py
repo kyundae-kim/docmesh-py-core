@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from docmesh_py_core.config import load_settings
-from docmesh_py_core.factories import NatsConnectionBuilder, ServiceFactoryRegistry
+from docmesh_py_core.factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
 
 
 def _settings():
@@ -43,16 +45,19 @@ def test_service_factory_registry_creates_lazy_clients_without_connecting():
     postgres_client = registry.create_client("postgres")
     minio_client = registry.create_client("minio")
 
-    assert postgres_client is postgres_builder.return_value
-    assert minio_client is minio_builder.return_value
+    assert isinstance(postgres_client, ServiceClientWrapper)
+    assert isinstance(minio_client, ServiceClientWrapper)
+    assert postgres_client.client is postgres_builder.return_value
+    assert minio_client.client is minio_builder.return_value
     postgres_builder.assert_called_once_with(registry.settings.postgres)
     minio_builder.assert_called_once_with(registry.settings.minio)
 
 
 def test_service_factory_registry_closes_only_clients_that_support_close():
     closable = Mock()
-    closable.close = Mock()
-    non_closable = object()
+    closable.dispose = Mock()
+    non_closable = Mock()
+    non_closable.ps = Mock(return_value=Mock())
 
     registry = ServiceFactoryRegistry(
         _settings(),
@@ -64,7 +69,7 @@ def test_service_factory_registry_closes_only_clients_that_support_close():
     registry.create_client("ollama")
     registry.close_all()
 
-    closable.close.assert_called_once_with()
+    closable.dispose.assert_called_once_with()
 
 
 def test_service_factory_registry_can_create_selected_clients_only():
@@ -111,13 +116,20 @@ def test_service_factory_registry_uses_service_specific_default_builders(monkeyp
         ["keycloak", "postgres", "minio", "milvus", "ollama", "langfuse", "nats"]
     )
 
-    assert clients["keycloak"] is fake_keycloak_client
-    assert clients["postgres"] is fake_postgres_client
-    assert clients["minio"] is fake_minio_client
-    assert clients["milvus"] is fake_milvus_client
-    assert clients["ollama"] is fake_ollama_client
-    assert clients["langfuse"] is fake_langfuse_client
+    assert isinstance(clients["keycloak"], ServiceClientWrapper)
+    assert isinstance(clients["postgres"], ServiceClientWrapper)
+    assert isinstance(clients["minio"], ServiceClientWrapper)
+    assert isinstance(clients["milvus"], ServiceClientWrapper)
+    assert isinstance(clients["ollama"], ServiceClientWrapper)
+    assert isinstance(clients["langfuse"], ServiceClientWrapper)
     assert isinstance(clients["nats"], NatsConnectionBuilder)
+
+    assert clients["keycloak"].client is fake_keycloak_client
+    assert clients["postgres"].client is fake_postgres_client
+    assert clients["minio"].client is fake_minio_client
+    assert clients["milvus"].client is fake_milvus_client
+    assert clients["ollama"].client is fake_ollama_client
+    assert clients["langfuse"].client is fake_langfuse_client
     assert clients["nats"].servers == ["nats://n1:4222"]
     assert clients["nats"].name == "docmesh-py-core"
 
@@ -182,3 +194,76 @@ def test_service_factory_registry_returns_noop_langfuse_when_disabled(monkeypatc
 
     assert registry.create_client("langfuse") is None
     langfuse_ctor.assert_not_called()
+
+
+def test_service_client_wrappers_expose_ping_and_check_methods():
+    keycloak_client = Mock()
+    keycloak_client.fetch_access_token.return_value = Mock(access_token="token")
+
+    connection = Mock()
+    connection.exec_driver_sql.return_value = Mock()
+    connection_context = Mock()
+    connection_context.__enter__ = Mock(return_value=connection)
+    connection_context.__exit__ = Mock(return_value=False)
+    postgres_client = Mock()
+    postgres_client.connect.return_value = connection_context
+
+    minio_client = Mock()
+    minio_client.list_buckets.return_value = []
+
+    milvus_client = Mock()
+    milvus_client.list_collections.return_value = []
+
+    ollama_client = Mock()
+    ollama_client.ps.return_value = Mock()
+
+    langfuse_client = Mock()
+    langfuse_client.auth_check.return_value = True
+
+    registry = ServiceFactoryRegistry(
+        _settings(),
+        keycloak_builder=Mock(return_value=keycloak_client),
+        postgres_builder=Mock(return_value=postgres_client),
+        minio_builder=Mock(return_value=minio_client),
+        milvus_builder=Mock(return_value=milvus_client),
+        ollama_builder=Mock(return_value=ollama_client),
+        langfuse_builder=Mock(return_value=langfuse_client),
+    )
+
+    assert registry.create_client("keycloak").ping().access_token == "token"
+    registry.create_client("keycloak").check()
+    registry.create_client("postgres").check()
+    registry.create_client("minio").check()
+    registry.create_client("milvus").check()
+    registry.create_client("ollama").check()
+    assert registry.create_client("langfuse").check() is True
+
+    keycloak_client.fetch_access_token.assert_called()
+    postgres_client.connect.assert_called_once_with()
+    connection.exec_driver_sql.assert_called_once_with("SELECT 1")
+    minio_client.list_buckets.assert_called_once_with()
+    milvus_client.list_collections.assert_called_once_with()
+    ollama_client.ps.assert_called_once_with()
+    langfuse_client.auth_check.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_nats_connection_builder_exposes_async_ping_and_check():
+    nats_client = Mock()
+    nats_client.flush = AsyncMock()
+    nats_client.close = AsyncMock()
+    connect_fn = AsyncMock(return_value=nats_client)
+    builder = NatsConnectionBuilder(
+        servers=["nats://n1:4222"],
+        name="docmesh-py-core",
+        connect_timeout_seconds=10,
+        max_reconnect_attempts=10,
+        _connect_fn=connect_fn,
+    )
+
+    await builder.ping()
+    await builder.check()
+
+    assert connect_fn.await_count == 2
+    nats_client.flush.assert_awaited()
+    nats_client.close.assert_awaited()
