@@ -5,7 +5,24 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
-## [2026-06-10] ingest | docmesh-py-core 코드베이스 초기 분석
+## [2026-06-10] ingest | docs/ 프로젝트 문서 4종 흡수
+
+- `docs/prd.md` → `raw/articles/prd.md` (sha256 프론트매터 포함, 불변 원본)
+- `docs/api.md` → `raw/project-docs/api.md` (심볼릭 링크, 코드와 함께 변함)
+- `docs/config.md` → `raw/project-docs/config.md` (심볼릭 링크)
+- `docs/test.md` → `raw/project-docs/test.md` (심볼릭 링크)
+- 보강된 페이지 (concepts/):
+  - `settings-system.md` — MAX_RETRIES·REQUEST_TIMEOUT 변수 전체 추가, 교차 검증 규칙·체크리스트 보강
+  - `test-strategy.md` — 전체 테스트 파일 구조, pytest 마커, 릴리스 체크리스트 추가
+- 보강된 페이지 (entities/):
+  - `minio.md` — REQUEST_TIMEOUT_SECONDS, MAX_RETRIES 추가
+  - `milvus.md` — CONNECT_TIMEOUT, REQUEST_TIMEOUT, MAX_RETRIES 추가
+  - `ollama.md` — MAX_RETRIES 추가
+  - `langfuse.md` — REQUEST_TIMEOUT, MAX_RETRIES 추가
+  - 6개 엔티티 전체: sources frontmatter 업데이트
+- `index.md`: Raw sources 카운트(4) 추가
+
+
 
 - 소스 스캔: `docmesh_py_core/` 전체 5개 모듈 + 테스트 6개 파일
 - 생성 페이지 (concepts/):

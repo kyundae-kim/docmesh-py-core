@@ -2,7 +2,7 @@
 
 > `docmesh-py-core` SDK 지식베이스 콘텐츠 카탈로그.
 > 새 세션 시작 시 이 파일을 먼저 읽어 기존 페이지를 파악할 것.
-> Last updated: 2026-06-10 | Total pages: 13
+> Last updated: 2026-06-10 | Total pages: 13 | Raw sources: 4
 
 ---
 

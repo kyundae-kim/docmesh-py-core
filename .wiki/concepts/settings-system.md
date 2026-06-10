@@ -4,110 +4,225 @@ created: 2026-06-10
 updated: 2026-06-10
 type: concept
 tags: [configuration, sdk-design, python]
-sources: []
+sources: [raw/articles/prd.md, raw/project-docs/config.md]
 confidence: high
 ---
 
 # 설정 시스템 (pydantic-settings)
 
-`config.py`는 SDK의 모든 환경 변수 기반 설정을 관리한다.
-pydantic-settings `BaseSettings`를 확장한 계층형 구조다.
+`config.py`는 pydantic-settings를 사용해 환경 변수를 타입-안전하게 읽고 검증한다.
+애플리케이션 시작 시 **한 번만** 로드해 전체 수명주기 동안 재사용한다.
 
-## 계층 구조
+## 공통 원칙 ^[raw/articles/prd.md]
 
-```
-DocmeshBaseSettings          ← 공통 헬퍼 (strip, bool 파싱, CSV)
-  ├── CommonConfig           DOCMESH_ 접두사
-  ├── KeycloakConfig         KEYCLOAK_ 접두사
-  ├── PostgresConfig         POSTGRES_ 접두사
-  ├── MinioConfig            MINIO_ 접두사
-  ├── MilvusConfig           MILVUS_ 접두사
-  ├── OllamaConfig           OLLAMA_ 접두사
-  ├── LangfuseConfig         LANGFUSE_ 접두사
-  └── NatsConfig             NATS_ 접두사
-          ↑
-       Settings (집계 모델 — 모든 서브 설정 포함)
-```
+- 모든 설정은 환경변수에서 읽는다. 코드에 URL·계정·비밀번호·토큰·secret key를 하드코딩하지 않는다.
+- 공백 문자열은 값이 없는 것으로 간주한다.
+- boolean 값은 대소문자 무관하게 `true` / `false`로 해석한다.
+- 숫자형 값은 허용 범위를 검증한다.
+- **공통 timeout/retry는 없다** — 서비스별 환경변수로만 관리한다.
 
 ## 진입점
 
 ```python
-import os
 from docmesh_py_core import load_settings
+import os
 
-settings = load_settings(os.environ)
+settings = load_settings(os.environ)   # Mapping[str, str] 수용
 ```
 
-`load_settings(env: Mapping[str, str]) → Settings`
-- 각 서브 설정을 독립적으로 빌드
-- 유효성 검사 실패 시 사람 읽기 좋은 `ConfigError` 메시지 반환
-- `LANGFUSE_ENVIRONMENT` 기본값을 `DOCMESH_ENV` 값으로 자동 설정
+`load_settings`는 내부적으로 `Settings(**env_dict)` 를 호출하고
+pydantic ValidationError를 `ConfigError`로 래핑해 반환한다.
 
-## 공통 기능 (DocmeshBaseSettings)
+## Settings 집계 모델
 
-| 기능 | 설명 |
+```python
+class Settings(BaseSettings):
+    env: str = "development"                   # DOCMESH_ENV
+    healthcheck_enabled: bool = True           # DOCMESH_HEALTHCHECK_ENABLED
+
+    keycloak: KeycloakConfig
+    postgres: PostgresConfig
+    minio: MinioConfig
+    milvus: MilvusConfig
+    ollama: OllamaConfig
+    langfuse: LangfuseConfig
+    nats: NatsConfig
+```
+
+## 공통 환경변수
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `DOCMESH_ENV` | - | `development` | 실행 환경 식별자 |
+| `DOCMESH_HEALTHCHECK_ENABLED` | - | `true` | 헬스체크 활성화 여부 |
+
+## 서비스별 환경변수
+
+### Keycloak (`KEYCLOAK_`)
+
+#### 기본 인증
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `KEYCLOAK_URL` | ✅ | - | Keycloak 기본 URL |
+| `KEYCLOAK_REALM` | ✅ | - | 인증 Realm |
+| `KEYCLOAK_CLIENT_ID` | ✅ | - | OIDC Client ID |
+| `KEYCLOAK_CLIENT_SECRET` | 조건부 | - | Confidential Client Secret |
+| `KEYCLOAK_VERIFY_SSL` | - | `true` | TLS 인증서 검증 여부 |
+| `KEYCLOAK_AUDIENCE` | - | - | JWT 검증 대상 Audience |
+| `KEYCLOAK_REQUEST_TIMEOUT_SECONDS` | - | `10` | OIDC/JWKS 요청 제한 시간 |
+| `KEYCLOAK_MAX_RETRIES` | - | `3` | 일시적 HTTP 오류 최대 재시도 횟수 |
+
+#### 토큰 획득
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `KEYCLOAK_TOKEN_GRANT_TYPE` | - | `client_credentials` | 토큰 획득 grant type |
+| `KEYCLOAK_TOKEN_SCOPE` | - | - | 토큰 요청 scope |
+| `KEYCLOAK_TOKEN_USERNAME` | 조건부 | - | password grant 사용자명 |
+| `KEYCLOAK_TOKEN_PASSWORD` | 조건부 | - | password grant 비밀번호 |
+
+#### 프로비저닝
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `KEYCLOAK_PROVISIONING_ENABLED` | - | `false` | 프로비저닝 활성화 여부 |
+| `KEYCLOAK_PROVISIONING_DRY_RUN` | - | `false` | 변경 없이 계획만 출력 |
+| `KEYCLOAK_ADMIN_REALM` | 조건부 | `master` | Admin API 인증 Realm |
+| `KEYCLOAK_ADMIN_CLIENT_ID` | 조건부 | `admin-cli` | Admin API 인증 Client ID |
+| `KEYCLOAK_ADMIN_CLIENT_SECRET` | 조건부 | - | Service Account Secret |
+| `KEYCLOAK_ADMIN_USERNAME` | 조건부 | - | 관리자 사용자명 |
+| `KEYCLOAK_ADMIN_PASSWORD` | 조건부 | - | 관리자 비밀번호 |
+| `KEYCLOAK_REALM_ENABLED` | - | `true` | 대상 Realm 활성화 여부 |
+| `KEYCLOAK_REALM_DISPLAY_NAME` | - | - | 대상 Realm 표시 이름 |
+| `KEYCLOAK_CLIENT_PUBLIC` | - | `false` | 생성할 Client의 Public 여부 |
+| `KEYCLOAK_CLIENT_REDIRECT_URIS` | - | - | 쉼표 구분 Redirect URI 목록 |
+| `KEYCLOAK_CLIENT_WEB_ORIGINS` | - | - | 쉼표 구분 Web Origin 목록 |
+| `KEYCLOAK_REALM_ROLES` | - | - | 쉼표 구분 Realm Role 목록 |
+| `KEYCLOAK_CLIENT_ROLES` | - | - | 쉼표 구분 Client Role 목록 |
+
+**프로비저닝 조건부 필수**: `KEYCLOAK_PROVISIONING_ENABLED=true`이면 Admin API 인증정보 필요.
+인증 방식은 **service account** 또는 **관리자 사용자명/비밀번호** 중 하나만.
+
+**password grant 조건부 필수**: `KEYCLOAK_TOKEN_GRANT_TYPE=password`이면
+`KEYCLOAK_TOKEN_USERNAME` + `KEYCLOAK_TOKEN_PASSWORD` 필요.
+
+### PostgreSQL (`POSTGRES_`)
+
+`POSTGRES_DSN` 설정 시 개별 변수보다 우선.
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `POSTGRES_DSN` | 조건부 | - | 연결 URI |
+| `POSTGRES_HOST` | 조건부 | - | 데이터베이스 호스트 |
+| `POSTGRES_PORT` | - | `5432` | 포트 |
+| `POSTGRES_DB` | 조건부 | - | 데이터베이스 이름 |
+| `POSTGRES_USER` | 조건부 | - | 사용자명 |
+| `POSTGRES_PASSWORD` | 조건부 | - | 비밀번호 |
+| `POSTGRES_SSLMODE` | - | `prefer` | SSL 모드 |
+| `POSTGRES_CONNECT_TIMEOUT_SECONDS` | - | `10` | 연결 제한 시간 |
+| `POSTGRES_POOL_SIZE` | - | `5` | 커넥션 풀 크기 |
+| `POSTGRES_MAX_OVERFLOW` | - | `10` | 최대 초과 연결 수 |
+
+### MinIO (`MINIO_`)
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `MINIO_ENDPOINT` | ✅ | - | `host:port` 형식 endpoint |
+| `MINIO_ACCESS_KEY` | ✅ | - | Access Key |
+| `MINIO_SECRET_KEY` | ✅ | - | Secret Key |
+| `MINIO_SECURE` | - | `true` | HTTPS 사용 여부 |
+| `MINIO_REGION` | - | - | 리전 |
+| `MINIO_BUCKET` | - | - | 기본 Bucket |
+| `MINIO_REQUEST_TIMEOUT_SECONDS` | - | `30` | 요청 제한 시간 |
+| `MINIO_MAX_RETRIES` | - | `3` | 일시적 요청 오류 최대 재시도 횟수 |
+
+> Production에서 `MINIO_SECURE=false`는 `ConfigError` 발생.
+
+### Milvus (`MILVUS_`)
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `MILVUS_URI` | ✅ | - | 연결 URI |
+| `MILVUS_TOKEN` | 조건부 | - | 인증 토큰 |
+| `MILVUS_DB_NAME` | - | `default` | 데이터베이스 이름 |
+| `MILVUS_COLLECTION` | - | - | 기본 Collection |
+| `MILVUS_SECURE` | - | `false` | TLS 사용 여부 |
+| `MILVUS_CONNECT_TIMEOUT_SECONDS` | - | `10` | 연결 제한 시간 |
+| `MILVUS_REQUEST_TIMEOUT_SECONDS` | - | `30` | 요청 제한 시간 |
+| `MILVUS_MAX_RETRIES` | - | `3` | 일시적 연결/요청 오류 최대 재시도 횟수 |
+
+> Production에서 `MILVUS_SECURE=false`는 `ConfigError` 발생.
+
+### Ollama (`OLLAMA_`)
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `OLLAMA_HOST` | ✅ | - | Ollama API 기본 URL |
+| `OLLAMA_GENERATION_MODEL` | - | - | 텍스트 생성 모델명 |
+| `OLLAMA_EMBEDDING_MODEL` | - | - | 임베딩 모델명 |
+| `OLLAMA_REQUEST_TIMEOUT_SECONDS` | - | `120` | 요청 제한 시간 (생성 호출이 오래 걸림) |
+| `OLLAMA_MAX_RETRIES` | - | `2` | 일시적 HTTP 오류 최대 재시도 횟수 |
+
+### Langfuse (`LANGFUSE_`)
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `LANGFUSE_ENABLED` | - | `true` | 활성화 여부 |
+| `LANGFUSE_HOST` | enabled일 때 ✅ | - | 서버 URL |
+| `LANGFUSE_PUBLIC_KEY` | enabled일 때 ✅ | - | 공개 키 |
+| `LANGFUSE_SECRET_KEY` | enabled일 때 ✅ | - | 시크릿 키 |
+| `LANGFUSE_ENVIRONMENT` | - | `DOCMESH_ENV` 값 | Langfuse 환경 식별자 |
+| `LANGFUSE_RELEASE` | - | - | 릴리즈 버전 태그 |
+| `LANGFUSE_REQUEST_TIMEOUT_SECONDS` | - | `10` | API 요청 제한 시간 |
+| `LANGFUSE_MAX_RETRIES` | - | `3` | 일시적 전송 오류 최대 재시도 횟수 |
+
+### NATS (`NATS_`)
+
+인증 방식은 아래 중 하나만 선택 (동시 설정 시 `ConfigError`):
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `NATS_SERVERS` | ✅ | - | 쉼표 구분 서버 URL 목록 |
+| `NATS_USER` | 조건부 | - | 사용자명 인증 — 사용자명 |
+| `NATS_PASSWORD` | 조건부 | - | 사용자명 인증 — 비밀번호 (USER와 쌍 필수) |
+| `NATS_TOKEN` | 조건부 | - | 토큰 인증 |
+| `NATS_CREDS_FILE` | 조건부 | - | Credentials 파일 경로 |
+| `NATS_NAME` | - | `docmesh-py-core` | 연결 식별자 |
+| `NATS_CONNECT_TIMEOUT_SECONDS` | - | `10` | 연결 제한 시간 |
+| `NATS_MAX_RECONNECT_ATTEMPTS` | - | `10` | 최대 재연결 횟수 |
+
+## 교차 검증 규칙 (ConfigError 발생 조건)
+
+| 조건 | 오류 |
 |------|------|
-| `strip_strings` validator | 공백 제거; 빈 문자열 → `None` 변환 |
-| `_parse_bool` | `"true"/"false"` 문자열 → `bool` (대소문자 무관) |
-| `_parse_csv` | `"a,b,c"` 문자열 → `["a","b","c"]` |
-| `env_key(field)` | 접두사 포함 환경 변수명 생성 (에러 메시지용) |
+| Production + `MINIO_SECURE=false` | MinIO는 production에서 HTTPS 필수 |
+| Production + `MILVUS_SECURE=false` | Milvus는 production에서 TLS 필수 |
+| `LANGFUSE_ENABLED=true` + key 미설정 | Langfuse 활성화 시 HOST/PUBLIC_KEY/SECRET_KEY 필수 |
+| `POSTGRES_DSN` 없음 + HOST/DB/USER/PASSWORD 중 누락 | PostgreSQL 연결 정보 불충분 |
+| `NATS_USER/PASSWORD` + `NATS_TOKEN` 동시 설정 | NATS 인증 방식은 하나만 선택 |
+| `KEYCLOAK_PROVISIONING_ENABLED=true` + Admin 인증정보 없음 | 프로비저닝에 Admin 인증정보 필요 |
+| `KEYCLOAK_TOKEN_GRANT_TYPE=password` + username/password 없음 | password grant 자격증명 필요 |
 
-## 유효성 검사 패턴
+## 환경별 운영 규칙 ^[raw/project-docs/config.md]
 
-pydantic의 `model_validator(mode="after")`를 사용해 다중 필드 간 규칙을 검증한다.
+- 로컬/개발/스테이징/운영은 코드가 아니라 환경변수로 구분한다.
+- 운영에서는 TLS와 인증서 검증을 기본값으로 유지한다.
+- integration 테스트는 운영 설정과 분리된 별도 환경변수 세트를 사용한다.
 
-주요 교차 검증 예시:
-- `KeycloakConfig`: public 클라이언트가 아니면 `client_secret` 필수
-- `KeycloakConfig`: `provisioning_enabled` 시 admin 인증 모드 단일화 강제
-- `NatsConfig`: `user/password`, `token`, `creds_file` 중 하나만 허용
-- `Settings.apply_cross_service_defaults`: production에서 SSL 비활성화 금지
+## 검증 체크리스트
 
-## 환경 변수 목록
-
-### DOCMESH_*
-| 변수 | 기본값 | 설명 |
-|------|--------|------|
-| `DOCMESH_ENV` | `development` | 환경 식별자 |
-| `DOCMESH_HEALTHCHECK_ENABLED` | `true` | 헬스체크 활성화 |
-
-### KEYCLOAK_*
-| 변수 | 필수 | 설명 |
-|------|------|------|
-| `KEYCLOAK_URL` | ✅ | Keycloak 서버 URL |
-| `KEYCLOAK_REALM` | ✅ | 렐름명 |
-| `KEYCLOAK_CLIENT_ID` | ✅ | 클라이언트 ID |
-| `KEYCLOAK_CLIENT_SECRET` | 비공개 클라이언트 필수 | 클라이언트 시크릿 |
-| `KEYCLOAK_VERIFY_SSL` | `true` | SSL 검증 여부 |
-| `KEYCLOAK_AUDIENCE` | - | 토큰 audience 검증용 |
-| `KEYCLOAK_TOKEN_GRANT_TYPE` | `client_credentials` | `client_credentials` 또는 `password` |
-| `KEYCLOAK_TOKEN_USERNAME/PASSWORD` | password grant 필수 | 사용자 자격증명 |
-| `KEYCLOAK_PROVISIONING_ENABLED` | `false` | 프로비저닝 활성화 |
-| `KEYCLOAK_PROVISIONING_DRY_RUN` | `false` | 드라이런 모드 |
-
-### POSTGRES_*
-| 변수 | 필수 | 설명 |
-|------|------|------|
-| `POSTGRES_DSN` | DSN 또는 개별 변수 | 전체 DSN 문자열 |
-| `POSTGRES_HOST` | DSN 없을 때 필수 | 호스트 |
-| `POSTGRES_DB` | DSN 없을 때 필수 | 데이터베이스명 |
-| `POSTGRES_USER/PASSWORD` | DSN 없을 때 필수 | 자격증명 |
-| `POSTGRES_PORT` | `5432` | 포트 |
-| `POSTGRES_POOL_SIZE` | `5` | 커넥션 풀 크기 |
-
-### MINIO_* / MILVUS_* / OLLAMA_* / LANGFUSE_* / NATS_*
-→ 각 서비스 위키 페이지 참조.
-
-## 보안 정책
-
-production 환경(`DOCMESH_ENV=production` 또는 `prod`)에서:
-- `KEYCLOAK_VERIFY_SSL=false` → `ConfigError`
-- `MINIO_SECURE=false` → `ConfigError`
-- `MILVUS_SECURE=false` → `ConfigError`
-
-[[sensitive-value-masking]] 모듈이 에러 메시지에서 민감 정보를 자동 제거한다.
+설정 추가/변경 시:
+- [ ] 필수 여부가 문서(`docs/config.md`)와 코드에서 일치하는가
+- [ ] 기본값이 문서와 코드에서 일치하는가
+- [ ] 민감정보 항목이 마스킹 정책 대상에 포함되는가
+- [ ] `.env.example`와 문서가 동기화되어 있는가
+- [ ] 테스트가 새 설정 항목을 검증하는가
 
 ## 관련 개념
 
 - [[docmesh-sdk-overview]] — SDK 전체 구조
-- [[service-factory-registry]] — 설정을 소비해 클라이언트를 생성
-- [[test-strategy]] — 테스트에서 설정 주입 패턴
+- [[service-factory-registry]] — Settings를 소비해 클라이언트 생성
+- [[sensitive-value-masking]] — 에러 메시지 마스킹
+- [[keycloak-auth-flow]] — KeycloakConfig 상세
+- [[test-strategy]] — 설정 유닛 테스트 패턴

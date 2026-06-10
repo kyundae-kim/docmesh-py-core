@@ -4,7 +4,7 @@ created: 2026-06-10
 updated: 2026-06-10
 type: entity
 tags: [service-connection]
-sources: []
+sources: [raw/articles/prd.md, raw/project-docs/config.md]
 confidence: high
 ---
 
@@ -21,6 +21,9 @@ confidence: high
 | `MILVUS_DB_NAME` | - | `default` | 데이터베이스명 |
 | `MILVUS_COLLECTION` | - | - | 기본 컬렉션명 |
 | `MILVUS_SECURE` | - | `false` | TLS 사용 여부 |
+| `MILVUS_CONNECT_TIMEOUT_SECONDS` | - | `10` | 연결 제한 시간 |
+| `MILVUS_REQUEST_TIMEOUT_SECONDS` | - | `30` | 요청 제한 시간 |
+| `MILVUS_MAX_RETRIES` | - | `3` | 일시적 연결/요청 오류 최대 재시도 횟수 |
 
 > Production에서 `MILVUS_SECURE=false`는 `ConfigError` 발생. ([[settings-system]] 참조)
 

@@ -4,7 +4,7 @@ created: 2026-06-10
 updated: 2026-06-10
 type: entity
 tags: [service-connection]
-sources: []
+sources: [raw/articles/prd.md, raw/project-docs/config.md]
 confidence: high
 ---
 
@@ -20,6 +20,7 @@ confidence: high
 | `OLLAMA_GENERATION_MODEL` | - | - | 텍스트 생성 모델명 |
 | `OLLAMA_EMBEDDING_MODEL` | - | - | 임베딩 모델명 |
 | `OLLAMA_REQUEST_TIMEOUT_SECONDS` | - | `120` | 요청 타임아웃 (생성이 오래 걸릴 수 있음) |
+| `OLLAMA_MAX_RETRIES` | - | `2` | 일시적 HTTP 오류 최대 재시도 횟수 |
 
 ## 관련 개념
 

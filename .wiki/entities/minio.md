@@ -4,7 +4,7 @@ created: 2026-06-10
 updated: 2026-06-10
 type: entity
 tags: [service-connection]
-sources: []
+sources: [raw/articles/prd.md, raw/project-docs/config.md]
 confidence: high
 ---
 
@@ -22,6 +22,8 @@ S3 호환 오브젝트 스토리지. 헬스체크는 `list_buckets()`.
 | `MINIO_SECURE` | - | `true` | HTTPS 사용 여부 |
 | `MINIO_REGION` | - | - | 리전 |
 | `MINIO_BUCKET` | - | - | 기본 버킷명 |
+| `MINIO_REQUEST_TIMEOUT_SECONDS` | - | `30` | 요청 제한 시간 |
+| `MINIO_MAX_RETRIES` | - | `3` | 일시적 요청 오류 최대 재시도 횟수 |
 
 > Production에서 `MINIO_SECURE=false`는 `ConfigError` 발생. ([[settings-system]] 참조)
 
