@@ -5,6 +5,14 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
+## [2026-06-11] query | 향후 개발 로드맵 제안
+
+- 질의: "향후 개발할 내용은? 개선할 점이나 신규 기능 등"
+- 생성 파일:
+  - `queries/future-development-roadmap.md` — 테스트 안정화, 관측성, 인증/저장소 고도화, 공통 유틸리티 확장 우선순위 정리
+- 업데이트 파일:
+  - `index.md` — Queries 섹션 등록, Total pages=16
+
 ## [2026-06-11] update | SDK 소비자 문서 구조 반영
 
 - `docs/sdk.md` 추가 반영: `raw/project-docs/sdk.md` 심볼릭 링크 생성

@@ -2,7 +2,7 @@
 
 > `docmesh-py-core` SDK 지식베이스 콘텐츠 카탈로그.
 > 새 세션 시작 시 이 파일을 먼저 읽어 기존 페이지를 파악할 것.
-> Last updated: 2026-06-11 | Total pages: 15 | Raw sources: 5
+> Last updated: 2026-06-11 | Total pages: 16 | Raw sources: 5
 
 ---
 
@@ -50,4 +50,5 @@ _(아직 없음)_
 ## Queries
 <!-- 비자명한 질문에 대한 종합 답변 (재도출 비용이 높은 것만) -->
 
+- [[future-development-roadmap]] — 현재 위키와 구현 상태를 기준으로 한 우선순위별 향후 개발/개선 제안
 - [[sqlite-adoption-plan]] — 이 SDK에 SQLite를 추가할 때의 설정·팩토리·헬스체크·테스트 설계안
