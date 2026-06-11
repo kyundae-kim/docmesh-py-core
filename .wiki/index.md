@@ -2,7 +2,7 @@
 
 > `docmesh-py-core` SDK 지식베이스 콘텐츠 카탈로그.
 > 새 세션 시작 시 이 파일을 먼저 읽어 기존 페이지를 파악할 것.
-> Last updated: 2026-06-11 | Total pages: 14 | Raw sources: 4
+> Last updated: 2026-06-11 | Total pages: 15 | Raw sources: 5
 
 ---
 
@@ -16,6 +16,7 @@
 - [[nats]] — 메시지 브로커. 비동기 연결 빌더 패턴
 - [[ollama]] — 로컬 LLM 추론 서버. `ps()` 헬스체크
 - [[postgres]] — 관계형 DB. SQLAlchemy Engine, `SELECT 1` 헬스체크
+- [[sqlite]] — 경량 관계형 DB. optional settings, `:memory:` 지원, `SELECT 1` 헬스체크
 
 ---
 

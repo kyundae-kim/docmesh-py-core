@@ -1,10 +1,10 @@
 ---
 title: 서비스 팩토리 레지스트리
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-11
 type: concept
 tags: [factory-pattern, service-connection, sdk-design, async]
-sources: []
+sources: [raw/project-docs/api.md, raw/project-docs/sdk.md]
 confidence: high
 ---
 
@@ -67,17 +67,12 @@ settings = load_settings(os.environ)
 registry = ServiceFactoryRegistry(settings)
 
 # 개별 클라이언트 획득
-minio   = registry.get("minio")    # → ServiceClientWrapper
-milvus  = registry.get("milvus")   # → ServiceClientWrapper
-postgres = registry.get("postgres") # → ServiceClientWrapper
-keycloak = registry.get("keycloak") # → ServiceClientWrapper(KeycloakAuthService)
-nats_builder = registry.get("nats") # → NatsConnectionBuilder
-
-# 지원 서비스 확인
-registry.list_services()  # → ['keycloak', 'postgres', 'minio', 'milvus', 'ollama', 'langfuse', 'nats']
-
-# 모든 서비스 헬스체크
-checks = registry.health_checks()  # → Mapping[str, CheckFn]
+minio   = registry.create_client("minio")
+milvus  = registry.create_client("milvus")
+postgres = registry.create_client("postgres")
+sqlite  = registry.create_client("sqlite")
+keycloak = registry.create_client("keycloak")
+nats_builder = registry.create_client("nats")
 ```
 
 ## 지원 서비스 및 헬스체크 전략
@@ -86,6 +81,7 @@ checks = registry.health_checks()  # → Mapping[str, CheckFn]
 |--------|-----------|----------------|-----------|
 | keycloak | `KeycloakAuthService` | `fetch_access_token()` | `AccessTokenResult` |
 | postgres | SQLAlchemy `Engine` | `SELECT 1` 실행 | - |
+| sqlite | SQLAlchemy `Engine` | `SELECT 1` 실행 | - |
 | minio | `minio.Minio` | `list_buckets()` | `list[Bucket]` |
 | milvus | `MilvusClient` | `list_collections()` | `list[str]` |
 | ollama | `ollama.Client` | `ps()` | 실행 중 모델 목록 |

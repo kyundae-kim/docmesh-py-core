@@ -5,6 +5,18 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
+## [2026-06-11] update | SDK 소비자 문서 구조 반영
+
+- `docs/sdk.md` 추가 반영: `raw/project-docs/sdk.md` 심볼릭 링크 생성
+- `docs/api.md` 수정 반영: `raw/project-docs/api.md` 최신 상태 참조 유지
+- `raw/project-docs/config.md`, `raw/project-docs/test.md` 링크도 함께 정비
+- 업데이트 파일:
+  - `concepts/docmesh-sdk-overview.md` — 소비 프로젝트용 문서 구조(`sdk.md`/`api.md` 역할 분리) 추가, top-level import와 지원 서비스 최신화
+  - `concepts/settings-system.md` — SQLite optional settings와 `SQLITE_*` 규칙 반영
+  - `concepts/service-factory-registry.md` — `create_client(...)` 기준으로 예제 수정, SQLite 서비스 추가
+  - `entities/sqlite.md` — SQLite 엔티티 페이지 신규 생성
+  - `index.md` — SQLite 엔티티 등록, Total pages=15, Raw sources=5
+
 ## [2026-06-11] update | SQLite 적용 설계안 수정
 
 - 사용자 피드백 반영: backend 선택 스위치(`DOCMESH_DB_BACKEND`) 제안 제거

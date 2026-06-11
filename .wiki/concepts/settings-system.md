@@ -1,10 +1,10 @@
 ---
 title: 설정 시스템 (pydantic-settings)
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-11
 type: concept
 tags: [configuration, sdk-design, python]
-sources: [raw/articles/prd.md, raw/project-docs/config.md]
+sources: [raw/articles/prd.md, raw/project-docs/config.md, raw/project-docs/api.md, raw/project-docs/sdk.md]
 confidence: high
 ---
 
@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     healthcheck_enabled: bool = True           # DOCMESH_HEALTHCHECK_ENABLED
 
     keycloak: KeycloakConfig
-    postgres: PostgresConfig
+    postgres: PostgresConfig | None
+    sqlite: SqliteConfig | None
     minio: MinioConfig
     milvus: MilvusConfig
     ollama: OllamaConfig
@@ -124,6 +125,23 @@ class Settings(BaseSettings):
 | `POSTGRES_POOL_SIZE` | - | `5` | 커넥션 풀 크기 |
 | `POSTGRES_MAX_OVERFLOW` | - | `10` | 최대 초과 연결 수 |
 
+### SQLite (`SQLITE_`)
+
+SQLite는 PostgreSQL과 별도 설정 집합으로 관리되며, `SQLITE_*` 환경변수가 존재할 때만 선택적으로 활성화된다.^[raw/project-docs/config.md]
+
+| 변수 | 필수 | 기본값 | 설명 |
+|------|------|--------|------|
+| `SQLITE_PATH` | 조건부 | - | SQLite 파일 경로 또는 `:memory:` |
+| `SQLITE_READONLY` | - | `false` | 읽기 전용 모드 |
+| `SQLITE_ENABLE_WAL` | - | `false` | WAL 모드 활성화 |
+| `SQLITE_BUSY_TIMEOUT_MS` | - | `5000` | 잠금 대기 시간(ms) |
+
+규칙:
+
+- `SQLITE_PATH=:memory:`는 프로세스 내 메모리 DB를 의미한다.
+- 명시적 backend selector 없이, 소비 프로젝트가 `settings.sqlite is not None` 여부로 분기한다.
+- health check는 `SELECT 1`을 사용한다.
+
 ### MinIO (`MINIO_`)
 
 | 변수 | 필수 | 기본값 | 설명 |
@@ -200,6 +218,7 @@ class Settings(BaseSettings):
 | Production + `MILVUS_SECURE=false` | Milvus는 production에서 TLS 필수 |
 | `LANGFUSE_ENABLED=true` + key 미설정 | Langfuse 활성화 시 HOST/PUBLIC_KEY/SECRET_KEY 필수 |
 | `POSTGRES_DSN` 없음 + HOST/DB/USER/PASSWORD 중 누락 | PostgreSQL 연결 정보 불충분 |
+| `SQLITE_PATH` 없음 + SQLite 사용을 기대하는 코드 경로 진입 | SQLite 연결 정보 불충분 |
 | `NATS_USER/PASSWORD` + `NATS_TOKEN` 동시 설정 | NATS 인증 방식은 하나만 선택 |
 | `KEYCLOAK_PROVISIONING_ENABLED=true` + Admin 인증정보 없음 | 프로비저닝에 Admin 인증정보 필요 |
 | `KEYCLOAK_TOKEN_GRANT_TYPE=password` + username/password 없음 | password grant 자격증명 필요 |
