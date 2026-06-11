@@ -10,6 +10,7 @@ from docmesh_py_core.config import (
     LangfuseConfig,
     NatsConfig,
     PostgresConfig,
+    SqliteConfig,
     Settings,
     load_settings,
 )
@@ -223,6 +224,103 @@ def test_langfuse_disabled_makes_credentials_optional():
     assert settings.langfuse.secret_key is None
 
 
+def test_load_settings_supports_sqlite_without_postgres_configuration():
+    settings = load_settings(
+        {
+            "KEYCLOAK_URL": "https://kc.example.com",
+            "KEYCLOAK_REALM": "docmesh",
+            "KEYCLOAK_CLIENT_ID": "backend",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
+            "SQLITE_PATH": ":memory:",
+            "MINIO_ENDPOINT": "minio.example.com:9000",
+            "MINIO_ACCESS_KEY": "minio-access",
+            "MINIO_SECRET_KEY": "minio-secret",
+            "MILVUS_URI": "http://milvus.example.com:19530",
+            "OLLAMA_HOST": "http://ollama.example.com:11434",
+            "LANGFUSE_ENABLED": "false",
+            "NATS_SERVERS": "nats://n1:4222",
+        }
+    )
+
+    assert settings.postgres is None
+    assert isinstance(settings.sqlite, SqliteConfig)
+    assert settings.sqlite.path == ":memory:"
+    assert settings.sqlite.readonly is False
+    assert settings.sqlite.enable_wal is False
+    assert settings.sqlite.busy_timeout_ms == 5000
+
+
+def test_load_settings_parses_sqlite_boolean_and_range_fields():
+    settings = load_settings(
+        {
+            "KEYCLOAK_URL": "https://kc.example.com",
+            "KEYCLOAK_REALM": "docmesh",
+            "KEYCLOAK_CLIENT_ID": "backend",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
+            "SQLITE_PATH": "./var/app.db",
+            "SQLITE_READONLY": "true",
+            "SQLITE_ENABLE_WAL": "true",
+            "SQLITE_BUSY_TIMEOUT_MS": "2500",
+            "MINIO_ENDPOINT": "minio.example.com:9000",
+            "MINIO_ACCESS_KEY": "minio-access",
+            "MINIO_SECRET_KEY": "minio-secret",
+            "MILVUS_URI": "http://milvus.example.com:19530",
+            "OLLAMA_HOST": "http://ollama.example.com:11434",
+            "LANGFUSE_ENABLED": "false",
+            "NATS_SERVERS": "nats://n1:4222",
+        }
+    )
+
+    assert settings.sqlite is not None
+    assert settings.sqlite.readonly is True
+    assert settings.sqlite.enable_wal is True
+    assert settings.sqlite.busy_timeout_ms == 2500
+
+
+def test_load_settings_rejects_invalid_sqlite_values():
+    with pytest.raises(ConfigError) as exc_info:
+        load_settings(
+            {
+                "KEYCLOAK_URL": "https://kc.example.com",
+                "KEYCLOAK_REALM": "docmesh",
+                "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
+                "SQLITE_PATH": "./var/app.db",
+                "SQLITE_READONLY": "yes",
+                "MINIO_ENDPOINT": "minio.example.com:9000",
+                "MINIO_ACCESS_KEY": "minio-access",
+                "MINIO_SECRET_KEY": "minio-secret",
+                "MILVUS_URI": "http://milvus.example.com:19530",
+                "OLLAMA_HOST": "http://ollama.example.com:11434",
+                "LANGFUSE_ENABLED": "false",
+                "NATS_SERVERS": "nats://n1:4222",
+            }
+        )
+
+    assert "SQLITE_READONLY" in str(exc_info.value)
+
+    with pytest.raises(ConfigError) as range_exc_info:
+        load_settings(
+            {
+                "KEYCLOAK_URL": "https://kc.example.com",
+                "KEYCLOAK_REALM": "docmesh",
+                "KEYCLOAK_CLIENT_ID": "backend",
+                "KEYCLOAK_CLIENT_SECRET": "client-secret",
+                "SQLITE_PATH": "./var/app.db",
+                "SQLITE_BUSY_TIMEOUT_MS": "-1",
+                "MINIO_ENDPOINT": "minio.example.com:9000",
+                "MINIO_ACCESS_KEY": "minio-access",
+                "MINIO_SECRET_KEY": "minio-secret",
+                "MILVUS_URI": "http://milvus.example.com:19530",
+                "OLLAMA_HOST": "http://ollama.example.com:11434",
+                "LANGFUSE_ENABLED": "false",
+                "NATS_SERVERS": "nats://n1:4222",
+            }
+        )
+
+    assert "SQLITE_BUSY_TIMEOUT_MS" in str(range_exc_info.value)
+
+
 def test_nats_allows_only_single_authentication_mode():
     with pytest.raises(ConfigError) as exc_info:
         load_settings(
@@ -283,6 +381,7 @@ def test_ssl_verification_cannot_be_disabled_in_production():
 def test_config_classes_are_backed_by_pydantic_settings():
     assert issubclass(KeycloakConfig, BaseSettings)
     assert issubclass(PostgresConfig, BaseSettings)
+    assert issubclass(SqliteConfig, BaseSettings)
     assert issubclass(LangfuseConfig, BaseSettings)
     assert issubclass(NatsConfig, BaseSettings)
 
@@ -290,6 +389,7 @@ def test_config_classes_are_backed_by_pydantic_settings():
 def test_service_configs_use_settings_config_prefixes_instead_of_validation_aliases(monkeypatch: pytest.MonkeyPatch):
     assert KeycloakConfig.model_config.get("env_prefix") == "KEYCLOAK_"
     assert PostgresConfig.model_config.get("env_prefix") == "POSTGRES_"
+    assert SqliteConfig.model_config.get("env_prefix") == "SQLITE_"
     assert LangfuseConfig.model_config.get("env_prefix") == "LANGFUSE_"
     assert NatsConfig.model_config.get("env_prefix") == "NATS_"
     assert KeycloakConfig.model_fields["url"].validation_alias is None

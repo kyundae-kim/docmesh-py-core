@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Mapping, TypeVar
+import os
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -193,6 +194,26 @@ class PostgresConfig(DocmeshBaseSettings):
         return self
 
 
+class SqliteConfig(DocmeshBaseSettings):
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="SQLITE_")
+
+    path: str
+    readonly: bool = False
+    enable_wal: bool = False
+    busy_timeout_ms: int = Field(default=5000, ge=0)
+
+    @field_validator("readonly", "enable_wal", mode="before")
+    @classmethod
+    def parse_boolean_fields(cls, value: Any, info) -> Any:
+        return cls._parse_bool(value, info.field_name)
+
+    @model_validator(mode="after")
+    def validate_required_fields(self) -> "SqliteConfig":
+        if self.path is None:
+            raise ValueError(f"Missing required environment variable: {self.env_key('path')}")
+        return self
+
+
 class MinioConfig(DocmeshBaseSettings):
     model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, env_prefix="MINIO_")
 
@@ -334,7 +355,8 @@ class Settings(BaseSettings):
 
     common: CommonConfig = Field(default_factory=lambda: CommonConfig())
     keycloak: KeycloakConfig = Field(default_factory=lambda: KeycloakConfig())
-    postgres: PostgresConfig = Field(default_factory=lambda: PostgresConfig())
+    postgres: PostgresConfig | None = Field(default_factory=lambda: _default_optional_settings(PostgresConfig))
+    sqlite: SqliteConfig | None = Field(default_factory=lambda: _default_optional_settings(SqliteConfig))
     minio: MinioConfig = Field(default_factory=lambda: MinioConfig())
     milvus: MilvusConfig = Field(default_factory=lambda: MilvusConfig())
     ollama: OllamaConfig = Field(default_factory=lambda: OllamaConfig())
@@ -378,9 +400,27 @@ def _rewrite_validation_message(settings_cls: type[SettingsT], exc: ValidationEr
 
 def _build_settings(settings_cls: type[SettingsT], env: Mapping[str, str]) -> SettingsT:
     try:
-        return settings_cls(**_settings_kwargs_from_env(settings_cls, env))
+        return settings_cls(_env_prefix="__DOCMESH_DISABLED__", **_settings_kwargs_from_env(settings_cls, env))
     except ValidationError as exc:
         raise ConfigError(_rewrite_validation_message(settings_cls, exc)) from exc
+
+
+def _has_any_env_value(settings_cls: type[SettingsT], env: Mapping[str, str]) -> bool:
+    prefix = settings_cls.model_config.get("env_prefix", "")
+    return any(key.startswith(prefix) and bool(str(value).strip()) for key, value in env.items())
+
+
+def _build_optional_settings(settings_cls: type[SettingsT], env: Mapping[str, str]) -> SettingsT | None:
+    if not _has_any_env_value(settings_cls, env):
+        return None
+    return _build_settings(settings_cls, env)
+
+
+def _default_optional_settings(settings_cls: type[SettingsT]) -> SettingsT | None:
+    env = {key: value for key, value in os.environ.items() if value}
+    if not _has_any_env_value(settings_cls, env):
+        return None
+    return settings_cls()
 
 
 def _validate_security(settings: Settings) -> None:
@@ -398,7 +438,8 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         return Settings(
             common=common,
             keycloak=_build_settings(KeycloakConfig, env),
-            postgres=_build_settings(PostgresConfig, env),
+            postgres=_build_optional_settings(PostgresConfig, env),
+            sqlite=_build_optional_settings(SqliteConfig, env),
             minio=_build_settings(MinioConfig, env),
             milvus=_build_settings(MilvusConfig, env),
             ollama=_build_settings(OllamaConfig, env),

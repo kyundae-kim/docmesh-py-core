@@ -1,4 +1,4 @@
-from .config import ConfigError, Settings, load_settings
+from .config import ConfigError, Settings, SqliteConfig, load_settings
 from .factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
 from .health import HealthCheckError, check_all_services
 from .keycloak import (
@@ -29,6 +29,7 @@ __all__ = [
     "ServiceClientWrapper",
     "ServiceFactoryRegistry",
     "Settings",
+    "SqliteConfig",
     "TokenValidationError",
     "check_all_services",
     "load_settings",

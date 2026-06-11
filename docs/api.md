@@ -1,41 +1,34 @@
 # docmesh-py-core API 가이드
 
-이 문서는 `docmesh-py-core`를 다른 애플리케이션에서 사용할 때 필요한 공개 API만 간결하게 정리한 문서다.
+이 문서는 `docmesh-py-core`의 **공개 API 레퍼런스**다.
 
 이 문서의 범위:
 
-- 무엇을 import 하는가
-- 어떤 순서로 사용하는가
-- 각 공개 API의 역할, 반환값, 대표 예시
+- 패키지 루트에서 무엇을 import 하는가
+- 각 함수/클래스가 어떤 역할을 하는가
+- 어떤 값을 반환하는가
+- 어떤 예외가 발생할 수 있는가
 
-세부 환경변수 규칙, 기본값, 조건부 필수값은 [설정 가이드](./config.md)를 참고한다.
-통합/단위 테스트 전략은 [테스트 가이드](./test.md)를 참고한다.
+권장 사용 흐름, 서비스 통합 전략, FastAPI/CLI 예제 같은 **SDK 사용 가이드**는 [SDK 가이드](./sdk.md)를 먼저 참고한다.
+세부 환경변수 규칙은 [설정 가이드](./config.md), 테스트 전략은 [테스트 가이드](./test.md)를 참고한다.
 
 ---
 
-## 1. 빠른 시작
+## 1. 이 문서를 보는 방법
 
-가장 일반적인 사용 흐름은 아래와 같다.
+먼저 [SDK 가이드](./sdk.md)에서 아래 내용을 이해한 뒤, 필요할 때 이 문서로 돌아오는 것을 권장한다.
 
-1. 환경변수로 설정을 준비한다.
-2. `load_settings()`로 설정을 검증한다.
-3. `ServiceFactoryRegistry`로 서비스 client를 만든다.
-4. `check()` 또는 실제 SDK 메서드를 호출한다.
+- 표준 초기화 순서
+- 서비스 선택 패턴
+- PostgreSQL / SQLite / MinIO / NATS / Keycloak 통합 흐름
+- FastAPI / CLI 예제
 
-```python
-from docmesh_py_core import ServiceFactoryRegistry, load_settings
+이 문서는 그 다음 단계에서 아래 질문에 답하기 위한 문서다.
 
-settings = load_settings(env)
-registry = ServiceFactoryRegistry(settings)
-
-postgres = registry.create_client("postgres")
-postgres.check()
-
-with postgres.connect() as conn:
-    conn.exec_driver_sql("SELECT 1")
-
-registry.close_all()
-```
+- `load_settings()`는 정확히 무엇을 반환하는가?
+- `ServiceFactoryRegistry.create_client()`는 서비스별로 무엇을 돌려주는가?
+- `check_all_services()`는 어떤 예외를 던지는가?
+- `KeycloakAuthService.fetch_access_token()`의 반환 타입은 무엇인가?
 
 ---
 
@@ -59,6 +52,7 @@ from docmesh_py_core import (
     ServiceClientWrapper,
     ServiceFactoryRegistry,
     Settings,
+    SqliteConfig,
     TokenValidationError,
     check_all_services,
     load_settings,
@@ -110,6 +104,7 @@ print(settings.keycloak.url)
 - `settings.common`
 - `settings.keycloak`
 - `settings.postgres`
+- `settings.sqlite`
 - `settings.minio`
 - `settings.milvus`
 - `settings.ollama`
@@ -142,6 +137,7 @@ registry = ServiceFactoryRegistry(settings)
 
 - `keycloak`
 - `postgres`
+- `sqlite`
 - `minio`
 - `milvus`
 - `ollama`
@@ -164,6 +160,7 @@ minio.check()
 | --- | --- |
 | `keycloak` | `ServiceClientWrapper` |
 | `postgres` | `ServiceClientWrapper` |
+| `sqlite` | `ServiceClientWrapper` |
 | `minio` | `ServiceClientWrapper` |
 | `milvus` | `ServiceClientWrapper` |
 | `ollama` | `ServiceClientWrapper` |
@@ -198,6 +195,7 @@ postgres.close()
 | --- | --- |
 | Keycloak | `fetch_access_token()` |
 | PostgreSQL | `SELECT 1` |
+| SQLite | `SELECT 1` |
 | MinIO | `list_buckets()` |
 | Milvus | `list_collections()` |
 | Ollama | `ps()` |

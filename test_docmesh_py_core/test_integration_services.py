@@ -245,6 +245,33 @@ def test_postgres_wrapper_check_against_real_service():
 
 
 @pytest.mark.health
+def test_sqlite_wrapper_check_with_local_memory_database():
+    settings = load_settings(
+        {
+            "DOCMESH_ENV": "integration",
+            "KEYCLOAK_URL": "https://kc.invalid",
+            "KEYCLOAK_REALM": "docmesh",
+            "KEYCLOAK_CLIENT_ID": "docmesh-client",
+            "KEYCLOAK_CLIENT_SECRET": "placeholder-secret",
+            "SQLITE_PATH": ":memory:",
+            "MINIO_ENDPOINT": "localhost:9000",
+            "MINIO_ACCESS_KEY": "placeholder-access-key",
+            "MINIO_SECRET_KEY": "placeholder-secret-key",
+            "MILVUS_URI": "http://localhost:19530",
+            "OLLAMA_HOST": "http://localhost:11434",
+            "LANGFUSE_ENABLED": "false",
+            "NATS_SERVERS": "nats://localhost:4222",
+        }
+    )
+
+    client = ServiceFactoryRegistry(settings).create_client("sqlite")
+
+    result = client.check()
+
+    assert result is not None
+
+
+@pytest.mark.health
 def test_minio_wrapper_check_against_real_service():
     _require_integration_environment()
     if not _service_is_configured("minio"):
