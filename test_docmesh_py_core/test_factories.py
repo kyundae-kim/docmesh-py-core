@@ -8,6 +8,25 @@ from docmesh_py_core.config import load_settings
 from docmesh_py_core.factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
 
 
+def _sqlite_settings():
+    return load_settings(
+        {
+            "KEYCLOAK_URL": "https://kc.example.com",
+            "KEYCLOAK_REALM": "docmesh",
+            "KEYCLOAK_CLIENT_ID": "backend",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
+            "SQLITE_PATH": ":memory:",
+            "MINIO_ENDPOINT": "minio.example.com:9000",
+            "MINIO_ACCESS_KEY": "minio-access",
+            "MINIO_SECRET_KEY": "minio-secret",
+            "MILVUS_URI": "http://milvus.example.com:19530",
+            "OLLAMA_HOST": "http://ollama.example.com:11434",
+            "LANGFUSE_ENABLED": "false",
+            "NATS_SERVERS": "nats://n1:4222",
+        }
+    )
+
+
 def _settings():
     return load_settings(
         {
@@ -86,6 +105,31 @@ def test_service_factory_registry_can_create_selected_clients_only():
 
     keycloak_builder.assert_called_once()
     postgres_builder.assert_not_called()
+
+
+def test_service_factory_registry_creates_sqlite_wrapper_and_healthcheck(monkeypatch):
+    fake_sqlite_client = Mock(name="sqlite-engine")
+    connection = Mock()
+    connection.exec_driver_sql.return_value = Mock()
+    connection_context = Mock()
+    connection_context.__enter__ = Mock(return_value=connection)
+    connection_context.__exit__ = Mock(return_value=False)
+    fake_sqlite_client.connect.return_value = connection_context
+    fake_sqlite_client.dispose = Mock()
+
+    sqlite_ctor = Mock(return_value=fake_sqlite_client)
+    monkeypatch.setattr("docmesh_py_core.factories.create_engine", sqlite_ctor)
+    monkeypatch.setattr("docmesh_py_core.factories._configure_sqlite_engine", Mock())
+
+    registry = ServiceFactoryRegistry(_sqlite_settings())
+
+    sqlite_client = registry.create_client("sqlite")
+
+    assert isinstance(sqlite_client, ServiceClientWrapper)
+    assert sqlite_client.client is fake_sqlite_client
+    sqlite_ctor.assert_called_once()
+    sqlite_client.check()
+    connection.exec_driver_sql.assert_called_once_with("SELECT 1")
 
 
 def test_service_factory_registry_uses_service_specific_default_builders(monkeypatch):

@@ -5,6 +5,20 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
+## [2026-06-11] update | SQLite 적용 설계안 수정
+
+- 사용자 피드백 반영: backend 선택 스위치(`DOCMESH_DB_BACKEND`) 제안 제거
+- 업데이트 파일:
+  - `queries/sqlite-adoption-plan.md` — switch 없는 SQLite 적용 방향으로 수정
+
+## [2026-06-11] query | SQLite 적용 설계안
+
+- 질의: "wiki를 참고하여 sqlite를 적용하면 어떻게 만들거야?"
+- 생성 파일:
+  - `queries/sqlite-adoption-plan.md` — SQLite 설정, 팩토리, 헬스체크, 테스트 설계안
+- 업데이트 파일:
+  - `index.md` — Queries 섹션 등록, Total pages=14
+
 ## [2026-06-10] ingest | docs/ 프로젝트 문서 4종 흡수
 
 - `docs/prd.md` → `raw/articles/prd.md` (sha256 프론트매터 포함, 불변 원본)

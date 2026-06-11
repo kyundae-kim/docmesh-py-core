@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
 import inspect
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -11,9 +12,9 @@ from minio import Minio
 from nats import connect as nats_connect
 from ollama import Client as OllamaClient
 from pymilvus import MilvusClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 
-from .config import KeycloakConfig, NatsConfig, PostgresConfig, Settings
+from .config import KeycloakConfig, NatsConfig, PostgresConfig, Settings, SqliteConfig
 from .keycloak import KeycloakAuthService
 
 Builder = Callable[[Any], Any]
@@ -99,6 +100,7 @@ class ServiceFactoryRegistry:
     settings: Settings
     keycloak_builder: Builder | None = None
     postgres_builder: Builder | None = None
+    sqlite_builder: Builder | None = None
     minio_builder: Builder | None = None
     milvus_builder: Builder | None = None
     ollama_builder: Builder | None = None
@@ -108,13 +110,16 @@ class ServiceFactoryRegistry:
     def __post_init__(self) -> None:
         self._builders = {
             "keycloak": (self.keycloak_builder or self._build_keycloak_client, self.settings.keycloak),
-            "postgres": (self.postgres_builder or self._build_postgres_client, self.settings.postgres),
             "minio": (self.minio_builder or self._build_minio_client, self.settings.minio),
             "milvus": (self.milvus_builder or self._build_milvus_client, self.settings.milvus),
             "ollama": (self.ollama_builder or self._build_ollama_client, self.settings.ollama),
             "langfuse": (self.langfuse_builder or self._build_langfuse_client, self.settings.langfuse),
             "nats": (self.nats_builder or self._build_nats_client, self.settings.nats),
         }
+        if self.settings.postgres is not None:
+            self._builders["postgres"] = (self.postgres_builder or self._build_postgres_client, self.settings.postgres)
+        if self.settings.sqlite is not None:
+            self._builders["sqlite"] = (self.sqlite_builder or self._build_sqlite_client, self.settings.sqlite)
         self._clients: dict[str, Any] = {}
 
     def create_client(self, service_name: str) -> Any:
@@ -142,6 +147,8 @@ class ServiceFactoryRegistry:
             return ServiceClientWrapper(client=client, healthcheck=client.fetch_access_token)
         if service_name == "postgres":
             return ServiceClientWrapper(client=client, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
+        if service_name == "sqlite":
+            return ServiceClientWrapper(client=client, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
         if service_name == "minio":
             return ServiceClientWrapper(client=client, healthcheck=client.list_buckets)
         if service_name == "milvus":
@@ -168,6 +175,21 @@ class ServiceFactoryRegistry:
                 "sslmode": config.sslmode,
             },
         )
+        return ServiceClientWrapper(
+            client=client,
+            healthcheck=lambda: _check_postgres(client),
+            close_fn=client.dispose,
+        )
+
+    def _build_sqlite_client(self, config: SqliteConfig) -> ServiceClientWrapper:
+        client = create_engine(
+            _sqlite_url(config),
+            connect_args={
+                "timeout": config.busy_timeout_ms / 1000,
+                "check_same_thread": False,
+            },
+        )
+        _configure_sqlite_engine(client, config)
         return ServiceClientWrapper(
             client=client,
             healthcheck=lambda: _check_postgres(client),
@@ -233,7 +255,30 @@ def _postgres_url(config: PostgresConfig) -> str:
     host = config.host or "localhost"
     port = config.port
     database = config.db or ""
-    return f"postgresql://{username}:{password}@{host}:{port}/{database}"
+    return f"postgresql://{username}:***@{host}:{port}/{database}"
+
+
+def _sqlite_url(config: SqliteConfig) -> str:
+    if config.path == ":memory:":
+        return "sqlite:///:memory:"
+
+    path = Path(config.path)
+    database_path = path if path.is_absolute() else path
+    if config.readonly:
+        return f"sqlite:///file:{database_path.as_posix()}?mode=ro&uri=true"
+    return f"sqlite:///{database_path.as_posix()}"
+
+
+def _configure_sqlite_engine(client: Any, config: SqliteConfig) -> None:
+    @event.listens_for(client, "connect")
+    def _apply_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(f"PRAGMA busy_timeout = {config.busy_timeout_ms}")
+            if config.enable_wal:
+                cursor.execute("PRAGMA journal_mode=WAL")
+        finally:
+            cursor.close()
 
 
 def _check_postgres(client: Any) -> Any:
