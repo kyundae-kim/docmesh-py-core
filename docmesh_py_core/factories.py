@@ -5,13 +5,13 @@ from dataclasses import dataclass, field
 import inspect
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus
 
 from langfuse import Langfuse
 from minio import Minio
 from nats import connect as nats_connect
 from ollama import Client as OllamaClient
 from pymilvus import MilvusClient
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy import create_engine, event
 
 from .config import KeycloakConfig, NatsConfig, PostgresConfig, Settings, SqliteConfig
@@ -247,15 +247,17 @@ class ServiceFactoryRegistry:
         )
 
 
-def _postgres_url(config: PostgresConfig) -> str:
+def _postgres_url(config: PostgresConfig) -> str | URL:
     if config.dsn:
-        return config.dsn
-    username = quote_plus(config.user or "")
-    password = quote_plus(config.password or "")
-    host = config.host or "localhost"
-    port = config.port
-    database = config.db or ""
-    return f"postgresql://{username}:***@{host}:{port}/{database}"
+        return make_url(config.dsn)
+    return URL.create(
+        "postgresql",
+        username=config.user or "",
+        password=config.password or "",
+        host=config.host or "localhost",
+        port=config.port,
+        database=config.db or "",
+    )
 
 
 def _sqlite_url(config: SqliteConfig) -> str:
