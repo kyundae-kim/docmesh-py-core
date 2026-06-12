@@ -415,6 +415,7 @@ def test_service_configs_use_settings_config_prefixes_instead_of_validation_alia
 
 def test_settings_is_base_settings_aggregate_and_builds_from_environment(monkeypatch: pytest.MonkeyPatch):
     assert issubclass(Settings, BaseSettings)
+    monkeypatch.delenv("DOCMESH_ENV", raising=False)
 
     env_values = {
         "KEYCLOAK_URL": "https://kc.example.com",
