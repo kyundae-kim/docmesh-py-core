@@ -1,7 +1,7 @@
 services:
   langfuse-worker:
     image: docker.io/langfuse/langfuse-worker:3
-    restart: always
+    restart: unless-stopped
     depends_on: &langfuse-depends-on
       langfuse-postgres:
         condition: service_healthy
@@ -65,7 +65,7 @@ services:
 
   langfuse-web:
     image: docker.io/langfuse/langfuse:3
-    restart: always
+    restart: unless-stopped
     depends_on: *langfuse-depends-on
     ports:
       - 3000
@@ -95,7 +95,7 @@ services:
 
   clickhouse:
     image: docker.io/clickhouse/clickhouse-server
-    restart: always
+    restart: unless-stopped
     user: "101:101"
     environment:
       CLICKHOUSE_DB: default
@@ -116,7 +116,7 @@ services:
 
   langfuse-minio:
     image: cgr.dev/chainguard/minio
-    restart: always
+    restart: unless-stopped
     entrypoint: sh
     # create the 'langfuse' bucket before starting the service
     command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
@@ -137,7 +137,7 @@ services:
 
   redis:
     image: docker.io/redis:7
-    restart: always
+    restart: unless-stopped
     # CHANGEME: row below to secure redis password
     command: >
       --requirepass ${REDIS_AUTH:-myredissecret}
@@ -154,7 +154,7 @@ services:
 
   langfuse-postgres:
     image: docker.io/postgres:${POSTGRES_VERSION:-17}
-    restart: always
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 3s
