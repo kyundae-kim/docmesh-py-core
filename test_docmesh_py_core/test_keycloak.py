@@ -15,21 +15,22 @@ import pytest
 from docmesh_py_core.config import load_settings
 from docmesh_py_core.keycloak import (
     KeycloakAuthService,
-    KeycloakProvisioner,
-    KeycloakTokenAuthenticationError,
     KeycloakTokenTemporaryError,
     TokenValidationError,
 )
 
 
-def _settings(*, dry_run: bool = False, audience: str | None = None):
+pytestmark = [pytest.mark.keycloak]
+
+
+def _settings(*, audience: str | None = None):
     env = {
         "KEYCLOAK_URL": "https://kc.example.com",
         "KEYCLOAK_REALM": "docmesh",
         "KEYCLOAK_CLIENT_ID": "backend",
         "KEYCLOAK_CLIENT_SECRET": "client-secret",
         "KEYCLOAK_PROVISIONING_ENABLED": "true",
-        "KEYCLOAK_PROVISIONING_DRY_RUN": "true" if dry_run else "false",
+        "KEYCLOAK_PROVISIONING_DRY_RUN": "false",
         "KEYCLOAK_ADMIN_CLIENT_SECRET": "admin-secret",
         "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
         "MINIO_ENDPOINT": "minio.example.com:9000",
@@ -130,35 +131,6 @@ def _encode_rs256_jwt(claims: dict[str, object]) -> tuple[str, dict[str, object]
         return token, jwks
 
 
-def test_keycloak_provisioner_reports_created_updated_unchanged_and_failed_items():
-    admin = Mock()
-    admin.ensure_realm.return_value = "created"
-    admin.ensure_client.return_value = "updated"
-    admin.ensure_realm_role.side_effect = ["unchanged", RuntimeError("client_secret leaked-value")]
-    admin.ensure_client_role.return_value = "created"
-
-    result = KeycloakProvisioner(_settings(), admin_client=admin).provision()
-
-    assert result.created == ["realm:docmesh", "client-role:backend/admin"]
-    assert result.updated == ["client:backend"]
-    assert result.unchanged == ["realm-role:reader"]
-    assert result.failed[0][0] == "realm-role:writer"
-    assert "leaked-value" not in result.failed[0][1]
-    assert "***" in result.failed[0][1]
-
-
-def test_keycloak_provisioner_supports_dry_run_without_mutations():
-    admin = Mock()
-
-    result = KeycloakProvisioner(_settings(dry_run=True), admin_client=admin).provision()
-
-    assert result.dry_run is True
-    assert "realm:docmesh" in result.planned
-    assert "client:backend" in result.planned
-    admin.ensure_realm.assert_not_called()
-    admin.ensure_client.assert_not_called()
-
-
 def test_keycloak_auth_service_fetches_access_token_with_client_credentials():
     http_client = Mock()
     http_client.post.return_value = {
@@ -188,22 +160,6 @@ def test_keycloak_auth_service_fetches_access_token_with_client_credentials():
         timeout=10,
         verify_ssl=True,
     )
-
-
-def test_keycloak_auth_service_masks_authentication_failures():
-    http_client = Mock()
-    http_client.post.return_value = {
-        "status_code": 401,
-        "json": {"error_description": "client_secret invalid-secret"},
-    }
-
-    auth = KeycloakAuthService(_settings(), http_client=http_client)
-
-    with pytest.raises(KeycloakTokenAuthenticationError) as exc_info:
-        auth.fetch_access_token()
-
-    assert "invalid-secret" not in str(exc_info.value)
-    assert "***" in str(exc_info.value)
 
 
 def test_keycloak_auth_service_treats_server_errors_as_temporary():

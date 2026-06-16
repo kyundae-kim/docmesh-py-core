@@ -5,6 +5,39 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
+## [2026-06-16] query | 다음 개발 우선순위 재평가
+
+- 질의: "다음 개발 할 것은?"
+- 근거 확인:
+  - `uv run pytest -q` → 46 passed, 10 warnings
+  - `pytest -q` → 가상환경 밖 의존성 부재로 collection 실패
+  - `test_integration_services.py` 의 `pytest.mark.keycloak`, `pytest.mark.health` 미등록 경고 확인
+- 업데이트 파일:
+  - `queries/future-development-roadmap.md` — 테스트 실행 계약, 마커 등록, 문서-구현 drift 기준으로 우선순위 재검증
+
+## [2026-06-16] update | 테스트 실행 계약 정리
+
+- 사용자 지시: 기존 로드맵의 1번(P0 테스트 체계 안정화) 진행
+- 변경 사항:
+  - `pyproject.toml` — `unit`, `integration`, `security`, `keycloak`, `health` pytest 마커 등록
+  - `docs/test.md` — 표준 실행 명령을 `uv run pytest` 기준으로 갱신
+  - `test_docmesh_py_core/test_project_contract.py` — 마커 등록/문서 실행 계약 회귀 테스트 추가
+- 검증:
+  - `uv run pytest -q test_docmesh_py_core/test_project_contract.py` → green
+  - `uv run pytest -q` → 48 passed, 1 warning
+
+## [2026-06-16] update | Keycloak 테스트 파일 분리
+
+- 사용자 지시: 기존 로드맵의 2번 진행
+- 변경 사항:
+  - `test_docmesh_py_core/test_security.py` 신규 추가 — 인증 실패 메시지 마스킹 회귀 테스트 분리
+  - `test_docmesh_py_core/test_keycloak_provisioning.py` 신규 추가 — dry-run/created/updated/failed provisioning 테스트 분리
+  - `test_docmesh_py_core/test_keycloak.py` — 토큰 획득/JWT 검증 중심으로 정리, provisioning/security 테스트 제거
+  - `test_docmesh_py_core/test_project_contract.py` — 문서가 기대하는 테스트 파일 구조 회귀 테스트 추가
+- 검증:
+  - `uv run pytest -q test_docmesh_py_core/test_project_contract.py test_docmesh_py_core/test_security.py test_docmesh_py_core/test_keycloak_provisioning.py test_docmesh_py_core/test_keycloak.py` → 12 passed
+  - `uv run pytest -q` → 50 passed, 1 warning
+
 ## [2026-06-11] query | 향후 개발 로드맵 제안
 
 - 질의: "향후 개발할 내용은? 개선할 점이나 신규 기능 등"
