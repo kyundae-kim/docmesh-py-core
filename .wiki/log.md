@@ -38,6 +38,19 @@
   - `uv run pytest -q test_docmesh_py_core/test_project_contract.py test_docmesh_py_core/test_security.py test_docmesh_py_core/test_keycloak_provisioning.py test_docmesh_py_core/test_keycloak.py` → 12 passed
   - `uv run pytest -q` → 50 passed, 1 warning
 
+## [2026-06-16] update | 헬스체크 병렬 옵션 추가
+
+- 사용자 지시: 기존 로드맵의 3번 진행
+- 변경 사항:
+  - `docmesh_py_core/health.py` — `check_all_services(..., parallel=True)` 옵션 추가
+  - 병렬 모드에서도 `services` 반환 순서는 입력 순서 유지
+  - 병렬 모드에서도 required 서비스 실패 시 마스킹된 `HealthCheckError` 보장
+  - `test_docmesh_py_core/test_health.py` — 병렬 실행/입력 순서/required failure 마스킹 회귀 테스트 추가
+  - `docs/test.md`, `concepts/health-check-pattern.md` — 병렬 health-check 동작 문서화
+- 검증:
+  - `uv run pytest -q test_docmesh_py_core/test_health.py` → 4 passed
+  - `uv run pytest -q` → 52 passed, 1 warning
+
 ## [2026-06-11] query | 향후 개발 로드맵 제안
 
 - 질의: "향후 개발할 내용은? 개선할 점이나 신규 기능 등"

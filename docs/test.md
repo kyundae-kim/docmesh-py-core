@@ -119,6 +119,7 @@
 - 오류 메시지 내 민감정보 마스킹
 - required service 실패 시 집계 예외 발생
 - optional service 실패 시 상태 결과만 실패로 표시
+- `parallel=True`일 때 병렬 실행되더라도 입력 순서대로 결과 반환
 
 대표 시나리오:
 
@@ -126,6 +127,7 @@
 - 일부 optional 실패 시 `ok=False`이지만 예외 미발생
 - required 실패 시 `HealthCheckError` 발생
 - 예외 메시지에 password/token/secret 미노출
+- `parallel=True`일 때 두 개 이상의 health check가 동시에 시작되어 전체 wall-clock 지연을 줄임
 
 권장 테스트 파일:
 

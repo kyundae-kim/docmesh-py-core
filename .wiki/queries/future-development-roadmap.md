@@ -42,6 +42,7 @@ collection 단계에서 실패한다. 즉, 테스트 성공 계약이 사실상 
 - `docs/test.md` 실행 예제를 `uv run pytest` 기준으로 정리 완료
 - `test_project_contract.py` 추가로 테스트 실행 계약과 마커 등록 상태를 회귀 테스트로 고정
 - `test_security.py`, `test_keycloak_provisioning.py` 분리 완료 — 문서가 기대하는 테스트 구조와 저장소 구조 일치
+- `check_all_services(parallel=True)` 옵션 추가 — 병렬 실행 + 입력 순서 결과 유지 + required failure 마스킹 예외 보장
 
 그런데 현재 실행 관점에서는 아래 리스크가 있다.
 
