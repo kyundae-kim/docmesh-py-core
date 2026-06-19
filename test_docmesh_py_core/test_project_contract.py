@@ -46,3 +46,21 @@ def test_keycloak_related_tests_are_split_by_concern():
     assert "KeycloakProvisioner" not in keycloak_test
     assert "mask" in security_test.lower()
     assert "KeycloakProvisioner" in provisioning_test
+
+
+def test_unit_test_conftest_centralizes_environment_isolation():
+    conftest = (PROJECT_ROOT / "test_docmesh_py_core" / "conftest.py").read_text(encoding="utf-8")
+
+    assert "DOCMESH_ENV_PREFIXES" in conftest
+    assert "clear_docmesh_environment_for_unit_tests" in conftest
+    assert "request.node.get_closest_marker(\"integration\")" in conftest
+    assert "monkeypatch.delenv(env_key, raising=False)" in conftest
+
+
+def test_integration_tests_use_shared_helpers_from_conftest():
+    integration_tests = (PROJECT_ROOT / "test_docmesh_py_core" / "test_integration_services.py").read_text(encoding="utf-8")
+
+    assert "from test_docmesh_py_core.conftest import" in integration_tests
+    assert "integration_env" in integration_tests
+    assert "require_integration_environment" in integration_tests
+    assert "service_env" in integration_tests
