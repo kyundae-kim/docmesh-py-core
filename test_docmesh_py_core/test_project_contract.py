@@ -105,3 +105,13 @@ def test_non_integration_test_modules_declare_documented_pytest_slices():
     for file_name, marker_snippet in expected_module_markers.items():
         content = (PROJECT_ROOT / 'test_docmesh_py_core' / file_name).read_text(encoding='utf-8')
         assert marker_snippet in content, file_name
+
+
+def test_security_and_provisioning_test_files_cover_documented_regression_scenarios():
+    security_test = (PROJECT_ROOT / 'test_docmesh_py_core' / 'test_security.py').read_text(encoding='utf-8')
+    provisioning_test = (PROJECT_ROOT / 'test_docmesh_py_core' / 'test_keycloak_provisioning.py').read_text(encoding='utf-8')
+
+    assert 'test_keycloak_auth_service_masks_temporary_failures' in security_test
+    assert 'test_mask_sensitive_value_masks_raw_bearer_tokens' in security_test
+    assert 'test_keycloak_provisioner_is_idempotent_when_resources_already_exist' in provisioning_test
+    assert 'test_keycloak_provisioner_does_not_delete_unspecified_resources' in provisioning_test

@@ -64,3 +64,42 @@ def test_keycloak_provisioner_supports_dry_run_without_mutations():
     assert "client:backend" in result.planned
     admin.ensure_realm.assert_not_called()
     admin.ensure_client.assert_not_called()
+
+
+def test_keycloak_provisioner_is_idempotent_when_resources_already_exist():
+    admin = Mock()
+    admin.ensure_realm.return_value = "unchanged"
+    admin.ensure_client.return_value = "unchanged"
+    admin.ensure_realm_role.return_value = "unchanged"
+    admin.ensure_client_role.return_value = "unchanged"
+
+    result = KeycloakProvisioner(_settings(), admin_client=admin).provision()
+
+    assert result.created == []
+    assert result.updated == []
+    assert result.failed == []
+    assert result.planned == []
+    assert result.unchanged == [
+        "realm:docmesh",
+        "client:backend",
+        "realm-role:reader",
+        "realm-role:writer",
+        "client-role:backend/admin",
+    ]
+
+
+def test_keycloak_provisioner_does_not_delete_unspecified_resources():
+    admin = Mock()
+    admin.ensure_realm.return_value = "unchanged"
+    admin.ensure_client.return_value = "unchanged"
+    admin.ensure_realm_role.return_value = "unchanged"
+    admin.ensure_client_role.return_value = "unchanged"
+    admin.delete_realm = Mock()
+    admin.delete_client = Mock()
+    admin.delete_role = Mock()
+
+    KeycloakProvisioner(_settings(), admin_client=admin).provision()
+
+    admin.delete_realm.assert_not_called()
+    admin.delete_client.assert_not_called()
+    admin.delete_role.assert_not_called()

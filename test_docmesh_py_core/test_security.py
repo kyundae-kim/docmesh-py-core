@@ -5,7 +5,12 @@ from unittest.mock import Mock
 import pytest
 
 from docmesh_py_core.config import load_settings
-from docmesh_py_core.keycloak import KeycloakAuthService, KeycloakTokenAuthenticationError
+from docmesh_py_core.keycloak import (
+    KeycloakAuthService,
+    KeycloakTokenAuthenticationError,
+    KeycloakTokenTemporaryError,
+)
+from docmesh_py_core.security import mask_sensitive_value
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.keycloak]
@@ -50,3 +55,27 @@ def test_keycloak_auth_service_masks_authentication_failures():
 
     assert "invalid-secret" not in str(exc_info.value)
     assert "***" in str(exc_info.value)
+
+
+def test_keycloak_auth_service_masks_temporary_failures():
+    http_client = Mock()
+    http_client.post.return_value = {
+        "status_code": 503,
+        "json": {"error_description": "access_token raw-token-value client_secret leaked-secret"},
+    }
+
+    auth = KeycloakAuthService(_settings(), http_client=http_client)
+
+    with pytest.raises(KeycloakTokenTemporaryError) as exc_info:
+        auth.fetch_access_token()
+
+    message = str(exc_info.value)
+    assert "raw-token-value" not in message
+    assert "leaked-secret" not in message
+    assert "***" in message
+
+
+def test_mask_sensitive_value_masks_raw_bearer_tokens():
+    raw_bearer_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInRva2VuIjoiYWJjMTIzIn0.signature"
+
+    assert mask_sensitive_value(raw_bearer_token) == "***"
