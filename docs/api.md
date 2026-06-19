@@ -54,9 +54,11 @@ from docmesh_py_core import (
     Settings,
     SqliteConfig,
     TokenValidationError,
+    build_service_log_event,
     check_all_services,
     load_settings,
     mask_sensitive_value,
+    retry_call,
 )
 ```
 
@@ -395,7 +397,7 @@ print(result.created, result.updated, result.failed)
 
 ---
 
-## 8. 보안 유틸리티
+## 8. 보안 및 관측성 유틸리티
 
 ### `mask_sensitive_value(raw)`
 
@@ -418,6 +420,49 @@ print(mask_sensitive_value("token: abc123"))
 - 로그 출력 전
 - 예외 메시지 노출 전
 - 운영 화면에 연결 정보나 오류를 보여주기 전
+
+### `build_service_log_event(...)`
+
+역할:
+
+- 서비스 연결/재시도/성공/실패 이벤트를 구조화된 dict로 만든다.
+- `error`와 민감해 보이는 추가 필드를 자동 마스킹한다.
+
+예시:
+
+```python
+from docmesh_py_core import build_service_log_event
+
+event = build_service_log_event(
+    service="keycloak",
+    operation="fetch_access_token",
+    outcome="temporary_error",
+    host="https://kc.example.com",
+    retry_count=1,
+    latency_ms=250,
+    error="token=abc123",
+)
+```
+
+### `retry_call(operation, ..., retry_on, max_attempts)`
+
+역할:
+
+- 일시적 오류에 대해 동기 함수를 재시도한다.
+- 기본 지수 백오프는 `base_delay_seconds * 2**(attempt-1)` 패턴을 사용한다.
+- 재시도 대상이 아닌 예외는 즉시 다시 발생시킨다.
+
+예시:
+
+```python
+from docmesh_py_core import retry_call
+
+result = retry_call(
+    flaky_operation,
+    retry_on=(TemporaryError,),
+    max_attempts=3,
+)
+```
 
 ---
 

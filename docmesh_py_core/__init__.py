@@ -12,6 +12,8 @@ from .keycloak import (
     KeycloakTokenTemporaryError,
     TokenValidationError,
 )
+from .observability import build_service_log_event
+from .retry import retry_call
 from .security import mask_sensitive_value
 
 __all__ = [
@@ -31,7 +33,9 @@ __all__ = [
     "Settings",
     "SqliteConfig",
     "TokenValidationError",
+    "build_service_log_event",
     "check_all_services",
     "load_settings",
     "mask_sensitive_value",
+    "retry_call",
 ]
