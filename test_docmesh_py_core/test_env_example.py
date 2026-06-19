@@ -26,6 +26,7 @@ def test_env_example_documents_all_expected_variables_without_real_secrets():
         "KEYCLOAK_TOKEN_PASSWORD=",
         "KEYCLOAK_REQUEST_TIMEOUT_SECONDS=",
         "KEYCLOAK_MAX_RETRIES=",
+        "KEYCLOAK_JWKS_CACHE_TTL_SECONDS=",
         "KEYCLOAK_PROVISIONING_ENABLED=",
         "KEYCLOAK_PROVISIONING_DRY_RUN=",
         "KEYCLOAK_ADMIN_REALM=",

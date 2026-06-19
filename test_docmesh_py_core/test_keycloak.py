@@ -29,6 +29,7 @@ def _settings(*, audience: str | None = None):
         "KEYCLOAK_REALM": "docmesh",
         "KEYCLOAK_CLIENT_ID": "backend",
         "KEYCLOAK_CLIENT_SECRET": "client-secret",
+        "KEYCLOAK_JWKS_CACHE_TTL_SECONDS": "5",
         "KEYCLOAK_PROVISIONING_ENABLED": "true",
         "KEYCLOAK_PROVISIONING_DRY_RUN": "false",
         "KEYCLOAK_ADMIN_CLIENT_SECRET": "admin-secret",
@@ -280,3 +281,69 @@ def test_keycloak_auth_service_validates_rs256_tokens_against_jwks():
     assert user.preferred_username == "bob"
     assert user.realm_roles == ["reader"]
     assert user.client_roles == {"backend": ["admin"]}
+
+
+def test_keycloak_auth_service_refreshes_jwks_after_cache_ttl_expires():
+    now = datetime.now(UTC)
+    token, jwks = _encode_rs256_jwt(
+        {
+            "sub": "ttl-user",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        }
+    )
+    http_client = Mock()
+    http_client.get.return_value = {"status_code": 200, "json": jwks}
+    current_time = Mock(side_effect=[100.0, 100.0, 106.0, 106.0, 106.0])
+
+    auth = KeycloakAuthService(
+        _settings(audience="docmesh-api"),
+        http_client=http_client,
+        allowed_algorithms=["RS256"],
+        current_time=current_time,
+    )
+
+    auth.extract_user_info(token)
+    auth.extract_user_info(token)
+
+    assert http_client.get.call_count == 2
+
+
+
+def test_keycloak_auth_service_refreshes_jwks_when_kid_rotates():
+    now = datetime.now(UTC)
+    token_one, jwks_one = _encode_rs256_jwt(
+        {
+            "sub": "rotation-one",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        }
+    )
+    token_two, jwks_two = _encode_rs256_jwt(
+        {
+            "sub": "rotation-two",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        }
+    )
+    http_client = Mock()
+    http_client.get.side_effect = [
+        {"status_code": 200, "json": jwks_one},
+        {"status_code": 200, "json": jwks_two},
+    ]
+
+    auth = KeycloakAuthService(
+        _settings(audience="docmesh-api"),
+        http_client=http_client,
+        allowed_algorithms=["RS256"],
+    )
+
+    user_one = auth.extract_user_info(token_one)
+    user_two = auth.extract_user_info(token_two)
+
+    assert user_one.sub == "rotation-one"
+    assert user_two.sub == "rotation-two"
+    assert http_client.get.call_count == 2

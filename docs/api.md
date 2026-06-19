@@ -181,7 +181,7 @@ minio.check()
 
 - `langfuse`는 비활성화 시 `None`일 수 있다.
 - `nats`는 연결된 client가 아니라 비동기 builder다.
-- 지원하지 않는 서비스명은 `KeyError`가 발생한다.
+- 지원하지 않는 서비스명은 `UnsupportedServiceError`가 발생한다.
 
 ### `ServiceClientWrapper`
 
@@ -342,6 +342,8 @@ print(token.expires_in)
 - issuer
 - expiry
 - audience(설정된 경우)
+- RS256 사용 시 JWKS 캐시 TTL 만료 후 재조회
+- RS256 검증 중 key rotation이 감지되면 JWKS 1회 강제 refresh
 
 예시:
 

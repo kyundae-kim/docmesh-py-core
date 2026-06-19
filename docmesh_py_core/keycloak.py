@@ -225,6 +225,7 @@ class KeycloakAuthService:
         event_logger: callable | None = None,
         timer: callable = time.perf_counter,
         sleep: callable = time.sleep,
+        current_time: callable = time.time,
     ) -> None:
         self.settings = settings
         self.http_client = http_client or _UrllibKeycloakHttpClient()
@@ -234,7 +235,9 @@ class KeycloakAuthService:
         self.event_logger = event_logger or self._default_event_logger
         self.timer = timer
         self.sleep = sleep
+        self.current_time = current_time
         self._jwks_cache: dict[str, Any] | None = None
+        self._jwks_cache_loaded_at: float | None = None
 
     def fetch_access_token(self, *, scope: str | None = None) -> AccessTokenResult:
         config = self.settings.keycloak
@@ -356,7 +359,13 @@ class KeycloakAuthService:
             return
         if algorithm == "RS256":
             jwk = self._select_jwk(header)
-            _verify_rs256_signature(signing_input, signature, jwk)
+            try:
+                _verify_rs256_signature(signing_input, signature, jwk)
+            except TokenValidationError as exc:
+                refreshed_jwk = self._refresh_jwk_for_header(header)
+                if refreshed_jwk is None:
+                    raise
+                _verify_rs256_signature(signing_input, signature, refreshed_jwk)
             return
         raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
 
@@ -365,17 +374,15 @@ class KeycloakAuthService:
         if not kid:
             raise TokenValidationError("JWT header is missing key id")
         jwks = self._get_jwks()
-        keys = jwks.get("keys")
-        if not isinstance(keys, list):
-            raise TokenValidationError("JWKS response is invalid")
-        for candidate in keys:
-            if isinstance(candidate, dict) and candidate.get("kid") == kid:
-                return candidate
-        raise TokenValidationError(f"No JWKS key found for kid: {kid}")
+        return self._find_jwk(jwks, kid)
 
-    def _get_jwks(self) -> dict[str, Any]:
-        if self._jwks_cache is not None:
-            return self._jwks_cache
+    def _get_jwks(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        ttl_seconds = self.settings.keycloak.jwks_cache_ttl_seconds
+        if not force_refresh and self._jwks_cache is not None:
+            if self._jwks_cache_loaded_at is None:
+                return self._jwks_cache
+            if ttl_seconds == 0 or (self.current_time() - self._jwks_cache_loaded_at) < ttl_seconds:
+                return self._jwks_cache
         response = self.http_client.get(
             self.jwks_endpoint,
             headers={"Accept": "application/json"},
@@ -388,7 +395,26 @@ class KeycloakAuthService:
             detail = _mask_error_detail(response.get("text") or body or "jwks fetch failed")
             raise TokenValidationError(f"Failed to load JWKS: {detail}")
         self._jwks_cache = body
+        self._jwks_cache_loaded_at = self.current_time()
         return body
+
+    def _refresh_jwk_for_header(self, header: dict[str, Any]) -> dict[str, Any] | None:
+        kid = header.get("kid")
+        if not kid:
+            return None
+        if self._jwks_cache is None:
+            return None
+        refreshed_jwks = self._get_jwks(force_refresh=True)
+        return self._find_jwk(refreshed_jwks, kid)
+
+    def _find_jwk(self, jwks: dict[str, Any], kid: Any) -> dict[str, Any]:
+        keys = jwks.get("keys")
+        if not isinstance(keys, list):
+            raise TokenValidationError("JWKS response is invalid")
+        for candidate in keys:
+            if isinstance(candidate, dict) and candidate.get("kid") == kid:
+                return candidate
+        raise TokenValidationError(f"No JWKS key found for kid: {kid}")
 
     def _parse_token_response(self, response: dict[str, Any]) -> AccessTokenResult:
         status_code = int(response.get("status_code", 0))
@@ -444,7 +470,7 @@ class KeycloakAuthService:
             expires_at = float(exp)
         except (TypeError, ValueError) as exc:
             raise TokenValidationError("JWT expiration claim is invalid") from exc
-        if expires_at <= time.time():
+        if expires_at <= self.current_time():
             raise TokenValidationError("JWT has expired")
 
         expected_audience = self.settings.keycloak.audience
