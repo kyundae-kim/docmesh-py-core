@@ -1,5 +1,12 @@
 from .config import ConfigError, Settings, SqliteConfig, load_settings
-from .factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
+from .factories import (
+    NatsConnectionBuilder,
+    ServiceClientError,
+    ServiceClientWrapper,
+    ServiceClientWrapperError,
+    ServiceFactoryRegistry,
+    UnsupportedServiceError,
+)
 from .health import HealthCheckError, check_all_services
 from .keycloak import (
     AccessTokenResult,
@@ -12,7 +19,12 @@ from .keycloak import (
     KeycloakTokenTemporaryError,
     TokenValidationError,
 )
+from .observability import build_service_log_event
+from .pagination import Page
+from .retry import retry_call
 from .security import mask_sensitive_value
+from .serialization import to_serializable
+from .snapshot import build_settings_snapshot
 
 __all__ = [
     "AccessTokenResult",
@@ -26,12 +38,20 @@ __all__ = [
     "KeycloakTokenError",
     "KeycloakTokenTemporaryError",
     "NatsConnectionBuilder",
+    "Page",
+    "ServiceClientError",
     "ServiceClientWrapper",
+    "ServiceClientWrapperError",
     "ServiceFactoryRegistry",
     "Settings",
     "SqliteConfig",
     "TokenValidationError",
+    "UnsupportedServiceError",
+    "build_service_log_event",
+    "build_settings_snapshot",
     "check_all_services",
     "load_settings",
     "mask_sensitive_value",
+    "retry_call",
+    "to_serializable",
 ]

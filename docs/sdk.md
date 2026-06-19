@@ -5,7 +5,7 @@
 이 문서의 목표:
 
 - 이 SDK가 어떤 문제를 해결하는지 빠르게 이해한다.
-- 최소한의 설정으로 애플리케이션에 붙인다.
+- 실제 코드 계약에 맞는 설정으로 애플리케이션에 붙인다.
 - 어떤 순서로 API를 호출해야 하는지 파악한다.
 - PostgreSQL, SQLite, MinIO, NATS, Keycloak 같은 서비스 통합 패턴을 바로 적용한다.
 - 세부 레퍼런스가 필요할 때 `config.md`, `api.md`, `test.md`로 자연스럽게 이동한다.
@@ -54,6 +54,18 @@
 ---
 
 ## 3. 빠른 시작
+
+`load_settings()`는 데이터베이스 설정만 읽는 얇은 헬퍼가 아니다. 현재 구현은 아래 서비스 설정을 함께 검증한다.
+
+- Keycloak
+- MinIO
+- Milvus
+- Ollama
+- NATS
+- Langfuse (`LANGFUSE_ENABLED=false`이면 비활성화 가능)
+- PostgreSQL / SQLite (둘 다 optional)
+
+따라서 아래 예제를 그대로 실행하려면 PostgreSQL 또는 SQLite 외에도 위 서비스의 필수 환경변수가 준비되어 있어야 한다. 전체 변수 목록은 [설정 가이드](./config.md)와 저장소 루트의 `.env.example`을 참고한다.
 
 가장 작은 성공 예제는 아래와 같다.
 
@@ -286,7 +298,7 @@ minio.check()
 
 문서상 계약:
 
-- 기본 health check는 `list_buckets()`
+- 현재 기본 health check는 `list_buckets()`
 
 ### 6.4 NATS
 
@@ -316,6 +328,11 @@ import asyncio
 builder = registry.create_client("nats")
 asyncio.run(builder.check())
 ```
+
+문서상 계약:
+
+- 현재 health check는 `connect()` 후 `flush()`까지 수행한다.
+- `check()`는 연결 확인 후 내부적으로 연결을 정리한다.
 
 ### 6.5 Keycloak
 
@@ -430,6 +447,19 @@ result = check_all_services(
         "minio": minio.check,
     },
     required_services={"postgres"},
+)
+```
+
+병렬 점검이 필요하면 `parallel=True`를 사용한다.
+
+```python
+result = check_all_services(
+    {
+        "postgres": postgres.check,
+        "minio": minio.check,
+    },
+    required_services={"postgres"},
+    parallel=True,
 )
 ```
 

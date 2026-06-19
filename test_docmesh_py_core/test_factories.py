@@ -3,9 +3,19 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from sqlalchemy.engine import URL
+
+
+pytestmark = [pytest.mark.unit]
 
 from docmesh_py_core.config import load_settings
-from docmesh_py_core.factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
+from docmesh_py_core.factories import (
+    NatsConnectionBuilder,
+    ServiceClientWrapper,
+    ServiceClientWrapperError,
+    ServiceFactoryRegistry,
+    UnsupportedServiceError,
+)
 
 
 def _sqlite_settings():
@@ -49,6 +59,38 @@ def _settings():
             "NATS_SERVERS": "nats://n1:4222",
         }
     )
+
+
+def test_service_factory_registry_wraps_healthcheck_failures_in_standardized_error():
+    broken_client = Mock(name="broken-minio-client")
+    broken_client.list_buckets.side_effect = RuntimeError("password=super-secret")
+
+    registry = ServiceFactoryRegistry(
+        _settings(),
+        minio_builder=Mock(return_value=broken_client),
+    )
+
+    wrapped = registry.create_client("minio")
+
+    with pytest.raises(ServiceClientWrapperError) as exc_info:
+        wrapped.check()
+
+    assert exc_info.value.service == "minio"
+    assert exc_info.value.operation == "healthcheck"
+    assert exc_info.value.error_type == "runtime_error"
+    assert "super-secret" not in str(exc_info.value)
+    assert "***" in str(exc_info.value)
+
+
+def test_service_factory_registry_raises_standardized_error_for_unsupported_service_name():
+    registry = ServiceFactoryRegistry(_settings())
+
+    with pytest.raises(UnsupportedServiceError) as exc_info:
+        registry.create_client("redis")
+
+    assert exc_info.value.service == "redis"
+    assert exc_info.value.operation == "create_client"
+    assert exc_info.value.error_type == "unsupported_service"
 
 
 def test_service_factory_registry_creates_lazy_clients_without_connecting():
@@ -178,12 +220,16 @@ def test_service_factory_registry_uses_service_specific_default_builders(monkeyp
     assert clients["nats"].name == "docmesh-py-core"
 
     keycloak_ctor.assert_called_once_with(registry.settings)
-    postgres_ctor.assert_called_once_with(
-        "postgresql://docmesh:secret@db.example.com:5432/app",
-        pool_size=5,
-        max_overflow=10,
-        connect_args={"connect_timeout": 10, "sslmode": "prefer"},
-    )
+    postgres_ctor.assert_called_once()
+    postgres_url = postgres_ctor.call_args.args[0]
+    assert isinstance(postgres_url, URL)
+    assert postgres_url.render_as_string(hide_password=True) == "postgresql://docmesh:***@db.example.com:5432/app"
+    assert postgres_url.render_as_string(hide_password=False) == "postgresql://docmesh:secret@db.example.com:5432/app"
+    assert postgres_ctor.call_args.kwargs == {
+        "pool_size": 5,
+        "max_overflow": 10,
+        "connect_args": {"connect_timeout": 10, "sslmode": "prefer"},
+    }
     minio_ctor.assert_called_once_with(
         "minio.example.com:9000",
         access_key="minio-access",

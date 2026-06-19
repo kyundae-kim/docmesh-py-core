@@ -7,12 +7,15 @@ import json
 import ssl
 import time
 from dataclasses import dataclass, field
+import logging
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from .config import Settings
+from .observability import build_service_log_event
+from .retry import retry_call
 from .security import mask_sensitive_value
 
 
@@ -218,12 +221,23 @@ class KeycloakAuthService:
         http_client: KeycloakHttpClient | None = None,
         verification_key: str | None = None,
         allowed_algorithms: list[str] | None = None,
+        logger: logging.Logger | None = None,
+        event_logger: callable | None = None,
+        timer: callable = time.perf_counter,
+        sleep: callable = time.sleep,
+        current_time: callable = time.time,
     ) -> None:
         self.settings = settings
         self.http_client = http_client or _UrllibKeycloakHttpClient()
         self.verification_key = verification_key
         self.allowed_algorithms = allowed_algorithms or ["HS256"]
+        self.logger = logger or logging.getLogger(__name__)
+        self.event_logger = event_logger or self._default_event_logger
+        self.timer = timer
+        self.sleep = sleep
+        self.current_time = current_time
         self._jwks_cache: dict[str, Any] | None = None
+        self._jwks_cache_loaded_at: float | None = None
 
     def fetch_access_token(self, *, scope: str | None = None) -> AccessTokenResult:
         config = self.settings.keycloak
@@ -242,38 +256,45 @@ class KeycloakAuthService:
             payload["username"] = config.token_username
             payload["password"] = config.token_password
 
-        response = self.http_client.post(
-            self.token_endpoint,
-            data=payload,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=config.request_timeout_seconds,
-            verify_ssl=config.verify_ssl,
-        )
-        status_code = int(response.get("status_code", 0))
-        body = response.get("json")
-        if not isinstance(body, dict):
-            body = {}
+        max_attempts = config.max_retries + 1
+        attempt_index = 0
 
-        if 200 <= status_code < 300:
-            access_token = body.get("access_token")
-            token_type = body.get("token_type")
-            expires_in = body.get("expires_in")
-            if not access_token or not token_type or expires_in is None:
-                raise KeycloakTokenError("Keycloak token response is missing required fields")
-            return AccessTokenResult(
-                access_token=access_token,
-                token_type=token_type,
-                expires_in=int(expires_in),
-                refresh_token=body.get("refresh_token"),
-                scope=body.get("scope"),
+        def _request_token() -> AccessTokenResult:
+            nonlocal attempt_index
+            start = self.timer()
+            try:
+                response = self.http_client.post(
+                    self.token_endpoint,
+                    data=payload,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    timeout=config.request_timeout_seconds,
+                    verify_ssl=config.verify_ssl,
+                )
+                result = self._parse_token_response(response)
+            except Exception as exc:
+                self._emit_token_event(
+                    outcome="temporary_error" if isinstance(exc, KeycloakTokenTemporaryError) else "error",
+                    retry_count=attempt_index,
+                    latency_ms=int(round((self.timer() - start) * 1000)),
+                    error=str(exc),
+                )
+                attempt_index += 1
+                raise
+
+            self._emit_token_event(
+                outcome="success",
+                retry_count=attempt_index,
+                latency_ms=int(round((self.timer() - start) * 1000)),
             )
+            attempt_index += 1
+            return result
 
-        description = _mask_error_detail(body.get("error_description") or body.get("error") or response.get("text") or "token request failed")
-        if status_code in {400, 401, 403}:
-            raise KeycloakTokenAuthenticationError(description)
-        if status_code in {408, 429} or status_code >= 500:
-            raise KeycloakTokenTemporaryError(description)
-        raise KeycloakTokenError(description)
+        return retry_call(
+            _request_token,
+            retry_on=(KeycloakTokenTemporaryError,),
+            max_attempts=max_attempts,
+            sleep=self.sleep,
+        )
 
     def extract_user_info(self, token: str) -> AuthenticatedUser:
         raw_token = _strip_bearer_prefix(token)
@@ -338,7 +359,13 @@ class KeycloakAuthService:
             return
         if algorithm == "RS256":
             jwk = self._select_jwk(header)
-            _verify_rs256_signature(signing_input, signature, jwk)
+            try:
+                _verify_rs256_signature(signing_input, signature, jwk)
+            except TokenValidationError as exc:
+                refreshed_jwk = self._refresh_jwk_for_header(header)
+                if refreshed_jwk is None:
+                    raise
+                _verify_rs256_signature(signing_input, signature, refreshed_jwk)
             return
         raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
 
@@ -347,17 +374,15 @@ class KeycloakAuthService:
         if not kid:
             raise TokenValidationError("JWT header is missing key id")
         jwks = self._get_jwks()
-        keys = jwks.get("keys")
-        if not isinstance(keys, list):
-            raise TokenValidationError("JWKS response is invalid")
-        for candidate in keys:
-            if isinstance(candidate, dict) and candidate.get("kid") == kid:
-                return candidate
-        raise TokenValidationError(f"No JWKS key found for kid: {kid}")
+        return self._find_jwk(jwks, kid)
 
-    def _get_jwks(self) -> dict[str, Any]:
-        if self._jwks_cache is not None:
-            return self._jwks_cache
+    def _get_jwks(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        ttl_seconds = self.settings.keycloak.jwks_cache_ttl_seconds
+        if not force_refresh and self._jwks_cache is not None:
+            if self._jwks_cache_loaded_at is None:
+                return self._jwks_cache
+            if ttl_seconds == 0 or (self.current_time() - self._jwks_cache_loaded_at) < ttl_seconds:
+                return self._jwks_cache
         response = self.http_client.get(
             self.jwks_endpoint,
             headers={"Accept": "application/json"},
@@ -370,7 +395,68 @@ class KeycloakAuthService:
             detail = _mask_error_detail(response.get("text") or body or "jwks fetch failed")
             raise TokenValidationError(f"Failed to load JWKS: {detail}")
         self._jwks_cache = body
+        self._jwks_cache_loaded_at = self.current_time()
         return body
+
+    def _refresh_jwk_for_header(self, header: dict[str, Any]) -> dict[str, Any] | None:
+        kid = header.get("kid")
+        if not kid:
+            return None
+        if self._jwks_cache is None:
+            return None
+        refreshed_jwks = self._get_jwks(force_refresh=True)
+        return self._find_jwk(refreshed_jwks, kid)
+
+    def _find_jwk(self, jwks: dict[str, Any], kid: Any) -> dict[str, Any]:
+        keys = jwks.get("keys")
+        if not isinstance(keys, list):
+            raise TokenValidationError("JWKS response is invalid")
+        for candidate in keys:
+            if isinstance(candidate, dict) and candidate.get("kid") == kid:
+                return candidate
+        raise TokenValidationError(f"No JWKS key found for kid: {kid}")
+
+    def _parse_token_response(self, response: dict[str, Any]) -> AccessTokenResult:
+        status_code = int(response.get("status_code", 0))
+        body = response.get("json")
+        if not isinstance(body, dict):
+            body = {}
+
+        if 200 <= status_code < 300:
+            access_token = body.get("access_token")
+            token_type = body.get("token_type")
+            expires_in = body.get("expires_in")
+            if not access_token or not token_type or expires_in is None:
+                raise KeycloakTokenError("Keycloak token response is missing required fields")
+            return AccessTokenResult(
+                access_token=access_token,
+                token_type=token_type,
+                expires_in=int(expires_in),
+                refresh_token=body.get("refresh_token"),
+                scope=body.get("scope"),
+            )
+
+        description = _mask_error_detail(body.get("error_description") or body.get("error") or response.get("text") or "token request failed")
+        if status_code in {400, 401, 403}:
+            raise KeycloakTokenAuthenticationError(description)
+        if status_code in {408, 429} or status_code >= 500:
+            raise KeycloakTokenTemporaryError(description)
+        raise KeycloakTokenError(description)
+
+    def _emit_token_event(self, *, outcome: str, retry_count: int, latency_ms: int, error: str | None = None) -> None:
+        event = build_service_log_event(
+            service="keycloak",
+            operation="fetch_access_token",
+            outcome=outcome,
+            host=self.settings.keycloak.url,
+            latency_ms=latency_ms,
+            retry_count=retry_count,
+            error=error,
+        )
+        self.event_logger(event)
+
+    def _default_event_logger(self, event: dict[str, Any]) -> None:
+        self.logger.info("service_event", extra={"service_event": event})
 
     def _validate_registered_claims(self, claims: dict[str, Any]) -> None:
         issuer = claims.get("iss")
@@ -384,7 +470,7 @@ class KeycloakAuthService:
             expires_at = float(exp)
         except (TypeError, ValueError) as exc:
             raise TokenValidationError("JWT expiration claim is invalid") from exc
-        if expires_at <= time.time():
+        if expires_at <= self.current_time():
             raise TokenValidationError("JWT has expired")
 
         expected_audience = self.settings.keycloak.audience

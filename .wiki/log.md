@@ -5,6 +5,96 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
+## [2026-06-19] ingest | docs/sdk.md
+
+- `raw/project-docs/sdk.md`는 living doc 심볼릭 링크로 최신 본문을 그대로 참조
+- 업데이트 파일:
+  - `concepts/docmesh-sdk-overview.md` — 표준 사용 흐름, 빠른 시작의 전제, 소비자용 문서 진입 순서 보강
+  - `concepts/service-factory-registry.md` — 필요한 서비스만 생성, readiness 구성, `close_all()`, NATS 비동기 사용 팁 반영
+  - `entities/nats.md` — 소비 프로젝트 관점의 `NatsConnectionBuilder` 사용법과 비동기 연결 패턴 추가
+- 유지 확인:
+  - `index.md` — 총 페이지 수 변화 없음 (`21`)
+
+## [2026-06-19] ingest | docs/config.md
+
+- `raw/project-docs/config.md`는 living doc 심볼릭 링크로 최신 본문을 그대로 참조
+- 업데이트 파일:
+  - `concepts/settings-system.md` — `KEYCLOAK_JWKS_CACHE_TTL_SECONDS`, 프로비저닝 인증 모드, SQLite 상대경로, `DOCMESH_ENV=integration` 규칙 반영
+  - `concepts/keycloak-auth-flow.md` — JWKS TTL/refresh 동작과 key rotation 대응 설명 보강
+- 유지 확인:
+  - `entities/sqlite.md` — config 문서와 이미 합치되는 SQLite 요구사항(상대경로, WAL, busy timeout, `:memory:`) 재확인
+  - `index.md` — 총 페이지 수 변화 없음 (`21`)
+
+## [2026-06-19] ingest | docs/api.md
+
+- `raw/project-docs/api.md`는 living doc 심볼릭 링크로 최신 본문을 그대로 참조
+- 생성 파일:
+  - `concepts/observability-utilities.md` — `build_service_log_event()` 구조화 로그 유틸리티 정리
+  - `concepts/serialization-and-snapshots.md` — `to_serializable()`와 `build_settings_snapshot()` 정리
+  - `concepts/pagination-and-retry.md` — `Page`와 `retry_call()` 공통 유틸리티 정리
+- 업데이트 파일:
+  - `concepts/docmesh-sdk-overview.md` — 공개 API 범위를 범용 유틸리티까지 확장 반영
+  - `concepts/service-factory-registry.md` — 표준 예외 계약 및 관측성 연결 보강
+  - `index.md` — Concepts 섹션/Total pages 갱신
+
+## [2026-06-19] ingest | docs/prd.md 재흡수
+
+- raw source drift 확인: `docs/prd.md`와 기존 `raw/articles/prd.md`의 sha256 불일치 확인 후 raw source 갱신
+- 갱신 파일:
+  - `raw/articles/prd.md` — SQLite, 컴포넌트 구성, 완료 기준, 위험/대응이 반영된 최신 PRD 본문 + sha256 갱신
+  - `concepts/docmesh-sdk-overview.md` — PRD 기준 컴포넌트 맵 및 SQLite/PRD 문서 역할 반영
+  - `concepts/keycloak-auth-flow.md` — scope/refresh token/부분 클레임/오류 구분 요구사항 반영
+  - `concepts/keycloak-provisioning.md` — 신규 생성. 선언형 프로비저닝, Dry-run, 멱등성, 부분 실패 계약 정리
+  - `concepts/test-strategy.md` — SQLite/프로비저닝/uv run pytest 기반 최신 검증 계약 반영
+  - `entities/sqlite.md` — 상대경로, read-only, WAL, 잘못된 경로 요구사항 반영
+  - `index.md` — Concepts 섹션과 Total pages 갱신
+
+## [2026-06-16] query | 다음 개발 우선순위 재평가
+
+- 질의: "다음 개발 할 것은?"
+- 근거 확인:
+  - `uv run pytest -q` → 46 passed, 10 warnings
+  - `pytest -q` → 가상환경 밖 의존성 부재로 collection 실패
+  - `test_integration_services.py` 의 `pytest.mark.keycloak`, `pytest.mark.health` 미등록 경고 확인
+- 업데이트 파일:
+  - `queries/future-development-roadmap.md` — 테스트 실행 계약, 마커 등록, 문서-구현 drift 기준으로 우선순위 재검증
+
+## [2026-06-16] update | 테스트 실행 계약 정리
+
+- 사용자 지시: 기존 로드맵의 1번(P0 테스트 체계 안정화) 진행
+- 변경 사항:
+  - `pyproject.toml` — `unit`, `integration`, `security`, `keycloak`, `health` pytest 마커 등록
+  - `docs/test.md` — 표준 실행 명령을 `uv run pytest` 기준으로 갱신
+  - `test_docmesh_py_core/test_project_contract.py` — 마커 등록/문서 실행 계약 회귀 테스트 추가
+- 검증:
+  - `uv run pytest -q test_docmesh_py_core/test_project_contract.py` → green
+  - `uv run pytest -q` → 48 passed, 1 warning
+
+## [2026-06-16] update | Keycloak 테스트 파일 분리
+
+- 사용자 지시: 기존 로드맵의 2번 진행
+- 변경 사항:
+  - `test_docmesh_py_core/test_security.py` 신규 추가 — 인증 실패 메시지 마스킹 회귀 테스트 분리
+  - `test_docmesh_py_core/test_keycloak_provisioning.py` 신규 추가 — dry-run/created/updated/failed provisioning 테스트 분리
+  - `test_docmesh_py_core/test_keycloak.py` — 토큰 획득/JWT 검증 중심으로 정리, provisioning/security 테스트 제거
+  - `test_docmesh_py_core/test_project_contract.py` — 문서가 기대하는 테스트 파일 구조 회귀 테스트 추가
+- 검증:
+  - `uv run pytest -q test_docmesh_py_core/test_project_contract.py test_docmesh_py_core/test_security.py test_docmesh_py_core/test_keycloak_provisioning.py test_docmesh_py_core/test_keycloak.py` → 12 passed
+  - `uv run pytest -q` → 50 passed, 1 warning
+
+## [2026-06-16] update | 헬스체크 병렬 옵션 추가
+
+- 사용자 지시: 기존 로드맵의 3번 진행
+- 변경 사항:
+  - `docmesh_py_core/health.py` — `check_all_services(..., parallel=True)` 옵션 추가
+  - 병렬 모드에서도 `services` 반환 순서는 입력 순서 유지
+  - 병렬 모드에서도 required 서비스 실패 시 마스킹된 `HealthCheckError` 보장
+  - `test_docmesh_py_core/test_health.py` — 병렬 실행/입력 순서/required failure 마스킹 회귀 테스트 추가
+  - `docs/test.md`, `concepts/health-check-pattern.md` — 병렬 health-check 동작 문서화
+- 검증:
+  - `uv run pytest -q test_docmesh_py_core/test_health.py` → 4 passed
+  - `uv run pytest -q` → 52 passed, 1 warning
+
 ## [2026-06-11] query | 향후 개발 로드맵 제안
 
 - 질의: "향후 개발할 내용은? 개선할 점이나 신규 기능 등"

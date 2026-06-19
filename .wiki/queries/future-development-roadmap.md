@@ -1,7 +1,7 @@
 ---
 title: 향후 개발 로드맵 제안
 created: 2026-06-11
-updated: 2026-06-11
+updated: 2026-06-16
 type: query
 tags: [roadmap, sdk-design, test-strategy, service-connection, error-handling]
 sources: [raw/articles/prd.md, raw/project-docs/sdk.md, raw/project-docs/api.md, raw/project-docs/test.md, raw/project-docs/config.md]
@@ -15,13 +15,18 @@ confidence: medium
 `docmesh-py-core`의 다음 단계는 **기능 추가 그 자체**보다도
 **운영 안정성 / 테스트 신뢰성 / 공통 유틸리티 확장** 쪽 우선순위가 더 높다.
 
-추가로 현재 상태를 확인하기 위해 `pytest -q test_docmesh_py_core`를 실행했을 때,
-46개 테스트 중 42개 통과 / 4개 실패가 나왔다. 실패는 크게 두 부류였다.
+2026-06-16 기준으로 현재 저장소 상태를 다시 검증하면,
+`uv run pytest -q` 는 46개 테스트가 모두 통과한다.
+다만 일반 `pytest -q` 는 현재 셸에 의존성이 직접 설치되어 있지 않아
+collection 단계에서 실패한다. 즉, 테스트 성공 계약이 사실상 "프로젝트 가상환경/uv를 통해 실행"으로 묶여 있다.
 
-- 단위 테스트가 현재 셸의 `DOCMESH_ENV=integration` 영향을 받아 기본 환경값 기대와 충돌
-- integration 테스트가 실제 PostgreSQL / Langfuse 연결을 시도했지만 자격증명 또는 호스트 상태가 맞지 않음
+추가로 `uv run pytest -q` 결과에서 `pytest.mark.keycloak`, `pytest.mark.health` 가
+등록되지 않아 PytestUnknownMarkWarning 10건이 발생했다.
+또 `[[test-strategy]]` 와 `docs/test.md` 에는 `test_security.py`,
+`test_keycloak_provisioning.py` 가 권장/기대 구조로 적혀 있지만,
+현재 실제 테스트 파일은 `test_keycloak.py` 하나에 보안/프로비저닝 검증이 섞여 있다.
 
-즉, "다음 기능"을 넣기 전에 테스트 계층과 실행 환경 경계를 먼저 단단하게 만드는 편이 투자 대비 효과가 크다.
+즉, "다음 기능"을 넣기 전에 테스트 실행 계약과 테스트 구조 문서-구현 정합성을 먼저 단단하게 만드는 편이 투자 대비 효과가 가장 크다.
 
 아래는 추천 우선순위다.
 
@@ -30,6 +35,14 @@ confidence: medium
 가장 먼저 할 일은 테스트 계층을 문서대로 더 엄격하게 분리하는 것이다.
 [[test-strategy]]는 단위 테스트와 integration 테스트를 분리하고,
 `DOCMESH_ENV=integration`일 때만 실제 서비스 검증을 수행하도록 정의한다.
+
+2026-06-16 진행 메모:
+
+- `pyproject.toml`에 `unit`, `integration`, `security`, `keycloak`, `health` 마커 등록 완료
+- `docs/test.md` 실행 예제를 `uv run pytest` 기준으로 정리 완료
+- `test_project_contract.py` 추가로 테스트 실행 계약과 마커 등록 상태를 회귀 테스트로 고정
+- `test_security.py`, `test_keycloak_provisioning.py` 분리 완료 — 문서가 기대하는 테스트 구조와 저장소 구조 일치
+- `check_all_services(parallel=True)` 옵션 추가 — 병렬 실행 + 입력 순서 결과 유지 + required failure 마스킹 예외 보장
 
 그런데 현재 실행 관점에서는 아래 리스크가 있다.
 
@@ -41,7 +54,7 @@ confidence: medium
 
 1. 단위 테스트에서 환경변수를 항상 명시적으로 격리
 2. integration 전용 fixture / helper를 중앙화
-3. pytest 마커를 `pytest.ini` 또는 `pyproject.toml`에 등록
+3. `keycloak`, `health`, `unit`, `security` 등 pytest 마커를 `pyproject.toml`에 등록
 4. 외부 서비스 credential/hostname 검증 실패 시 skip 메시지를 더 명확히 표준화
 5. 테스트 가이드와 실제 테스트 파일 목록을 다시 맞춤
 

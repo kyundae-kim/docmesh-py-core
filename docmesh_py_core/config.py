@@ -81,6 +81,7 @@ class KeycloakConfig(DocmeshBaseSettings):
     token_password: str | None = None
     request_timeout_seconds: int = Field(default=10, ge=1)
     max_retries: int = Field(default=3, ge=0)
+    jwks_cache_ttl_seconds: int = Field(default=300, ge=0)
     provisioning_enabled: bool = False
     provisioning_dry_run: bool = False
     admin_realm: str = "master"

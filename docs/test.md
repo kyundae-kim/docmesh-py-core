@@ -40,6 +40,8 @@
 - 외부 서비스 SDK 호출은 mock으로 계약 위주 검증을 우선한다.
 - 네트워크, 인증, 시간 의존 로직은 deterministic fixture로 고정한다.
 - 토큰, 비밀번호, secret 값은 테스트 데이터라도 마스킹 검증 대상에 포함한다.
+- 저장소 루트에서는 기본 `pytest` 대신 `uv run pytest`를 표준 실행 계약으로 사용한다.
+  프로젝트 가상환경의 의존성과 pytest 설정을 일관되게 적용하기 위해서다.
 
 ### integration 테스트 방침
 
@@ -117,6 +119,7 @@
 - 오류 메시지 내 민감정보 마스킹
 - required service 실패 시 집계 예외 발생
 - optional service 실패 시 상태 결과만 실패로 표시
+- `parallel=True`일 때 병렬 실행되더라도 입력 순서대로 결과 반환
 
 대표 시나리오:
 
@@ -124,6 +127,7 @@
 - 일부 optional 실패 시 `ok=False`이지만 예외 미발생
 - required 실패 시 `HealthCheckError` 발생
 - 예외 메시지에 password/token/secret 미노출
+- `parallel=True`일 때 두 개 이상의 health check가 동시에 시작되어 전체 wall-clock 지연을 줄임
 
 권장 테스트 파일:
 
@@ -278,9 +282,9 @@
 예시:
 
 ```bash
-pytest -q -m "not integration"
-DOCMESH_ENV=integration .venv/bin/pytest -q -m integration
-DOCMESH_ENV=integration .venv/bin/pytest -q test_docmesh_py_core/test_integration_services.py
+uv run pytest -q -m "not integration"
+DOCMESH_ENV=integration uv run pytest -q -m integration
+DOCMESH_ENV=integration uv run pytest -q test_docmesh_py_core/test_integration_services.py
 ```
 
 ---
@@ -300,6 +304,9 @@ pytestmark = [
 - `@pytest.mark.security`
 - `@pytest.mark.keycloak`
 - `@pytest.mark.health`
+
+이 마커들은 `pyproject.toml`의 `[tool.pytest.ini_options.markers]`에 등록해
+PytestUnknownMarkWarning 없이 슬라이스 실행이 가능해야 한다.
 
 ---
 
@@ -368,10 +375,10 @@ test_docmesh_py_core/
 ## 권장 실행 명령
 
 ```bash
-pytest -q test_docmesh_py_core
-pytest -q test_docmesh_py_core/test_factories.py
-pytest -q test_docmesh_py_core/test_keycloak.py
-pytest -q -m "not integration"
+uv run pytest -q test_docmesh_py_core
+uv run pytest -q test_docmesh_py_core/test_factories.py
+uv run pytest -q test_docmesh_py_core/test_keycloak.py
+uv run pytest -q -m "not integration"
 ```
 
 ---

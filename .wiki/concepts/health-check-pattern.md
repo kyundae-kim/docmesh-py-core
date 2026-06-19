@@ -1,7 +1,7 @@
 ---
 title: 헬스체크 패턴
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-16
 type: concept
 tags: [service-connection, sdk-design, error-handling]
 sources: []
@@ -25,6 +25,7 @@ result = check_all_services(
         "postgres": postgres_wrapper.ping,
     },
     required_services={"minio", "postgres"},  # 선택적 — 실패 시 예외 발생
+    parallel=True,                              # 선택적 — 병렬 실행
 )
 ```
 
@@ -46,8 +47,11 @@ class ServiceHealthStatus:
 
 ## required_services 동작
 
-`required_services`에 포함된 서비스가 실패하면 즉시 `HealthCheckError`를 발생시킨다.
-이후 서비스 체크는 실행되지 않는다.
+`required_services`에 포함된 서비스가 실패하면 `HealthCheckError`를 발생시킨다.
+
+- `parallel=False`(기본값): 첫 required 실패에서 즉시 예외를 발생시키고 이후 체크는 실행하지 않는다.
+- `parallel=True`: health check를 병렬로 실행한 뒤 입력 순서상 첫 번째 required 실패 서비스에 대해 예외를 발생시킨다.
+  이 모드에서는 뒤쪽 서비스도 이미 시작될 수 있지만, 호출자는 여전히 required 실패를 예외로 처리하면 된다.
 
 ```python
 class HealthCheckError(RuntimeError):
@@ -66,6 +70,12 @@ class HealthCheckError(RuntimeError):
 fake_time = iter([0.0, 0.05])  # 50ms 레이턴시 시뮬레이션
 result = check_all_services(checks, timer=lambda: next(fake_time))
 ```
+
+## 병렬 실행 옵션
+
+`parallel=True`를 주면 내부적으로 thread pool을 사용해 각 `check()`를 동시에 실행한다.
+반환되는 `services` 순서는 입력 `service_checks` 순서를 그대로 유지한다.
+네트워크 왕복이 많은 MinIO/Milvus/Ollama/NATS 조합에서 전체 헬스체크 시간을 줄이는 데 유용하다.
 
 ## ServiceFactoryRegistry와의 연동
 

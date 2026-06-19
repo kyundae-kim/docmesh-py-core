@@ -2,7 +2,7 @@
 
 > `docmesh-py-core` SDK 지식베이스 콘텐츠 카탈로그.
 > 새 세션 시작 시 이 파일을 먼저 읽어 기존 페이지를 파악할 것.
-> Last updated: 2026-06-11 | Total pages: 16 | Raw sources: 5
+> Last updated: 2026-06-19 | Total pages: 21 | Raw sources: 5
 
 ---
 
@@ -26,6 +26,10 @@
 - [[docmesh-sdk-overview]] — SDK 전체 구조, 공개 API, 모듈 역할 요약
 - [[health-check-pattern]] — 다중 서비스 헬스체크 집계, required_services, 타이머 주입
 - [[keycloak-auth-flow]] — 토큰 발급(grant type별), JWT 검증(HS256/RS256), 사용자 정보 추출
+- [[keycloak-provisioning]] — Realm/Client/Role 선언 반영, Dry-run, 멱등성, 부분 실패 처리
+- [[observability-utilities]] — 구조화 서비스 로그 이벤트와 민감정보 자동 마스킹
+- [[pagination-and-retry]] — `Page` 모델과 지수 백오프 `retry_call()` 유틸리티
+- [[serialization-and-snapshots]] — `to_serializable()`와 안전한 설정 스냅샷 생성
 - [[sensitive-value-masking]] — 로그/에러 내 password·token·secret 자동 마스킹
 - [[service-factory-registry]] — ServiceClientWrapper, NatsConnectionBuilder, 서비스 추가 패턴
 - [[settings-system]] — pydantic-settings 계층, 환경 변수 목록, 교차 검증 규칙

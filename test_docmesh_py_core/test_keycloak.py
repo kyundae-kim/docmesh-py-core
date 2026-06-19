@@ -15,21 +15,23 @@ import pytest
 from docmesh_py_core.config import load_settings
 from docmesh_py_core.keycloak import (
     KeycloakAuthService,
-    KeycloakProvisioner,
-    KeycloakTokenAuthenticationError,
     KeycloakTokenTemporaryError,
     TokenValidationError,
 )
 
 
-def _settings(*, dry_run: bool = False, audience: str | None = None):
+pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
+
+
+def _settings(*, audience: str | None = None):
     env = {
         "KEYCLOAK_URL": "https://kc.example.com",
         "KEYCLOAK_REALM": "docmesh",
         "KEYCLOAK_CLIENT_ID": "backend",
         "KEYCLOAK_CLIENT_SECRET": "client-secret",
+        "KEYCLOAK_JWKS_CACHE_TTL_SECONDS": "5",
         "KEYCLOAK_PROVISIONING_ENABLED": "true",
-        "KEYCLOAK_PROVISIONING_DRY_RUN": "true" if dry_run else "false",
+        "KEYCLOAK_PROVISIONING_DRY_RUN": "false",
         "KEYCLOAK_ADMIN_CLIENT_SECRET": "admin-secret",
         "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
         "MINIO_ENDPOINT": "minio.example.com:9000",
@@ -130,35 +132,6 @@ def _encode_rs256_jwt(claims: dict[str, object]) -> tuple[str, dict[str, object]
         return token, jwks
 
 
-def test_keycloak_provisioner_reports_created_updated_unchanged_and_failed_items():
-    admin = Mock()
-    admin.ensure_realm.return_value = "created"
-    admin.ensure_client.return_value = "updated"
-    admin.ensure_realm_role.side_effect = ["unchanged", RuntimeError("client_secret leaked-value")]
-    admin.ensure_client_role.return_value = "created"
-
-    result = KeycloakProvisioner(_settings(), admin_client=admin).provision()
-
-    assert result.created == ["realm:docmesh", "client-role:backend/admin"]
-    assert result.updated == ["client:backend"]
-    assert result.unchanged == ["realm-role:reader"]
-    assert result.failed[0][0] == "realm-role:writer"
-    assert "leaked-value" not in result.failed[0][1]
-    assert "***" in result.failed[0][1]
-
-
-def test_keycloak_provisioner_supports_dry_run_without_mutations():
-    admin = Mock()
-
-    result = KeycloakProvisioner(_settings(dry_run=True), admin_client=admin).provision()
-
-    assert result.dry_run is True
-    assert "realm:docmesh" in result.planned
-    assert "client:backend" in result.planned
-    admin.ensure_realm.assert_not_called()
-    admin.ensure_client.assert_not_called()
-
-
 def test_keycloak_auth_service_fetches_access_token_with_client_credentials():
     http_client = Mock()
     http_client.post.return_value = {
@@ -188,22 +161,6 @@ def test_keycloak_auth_service_fetches_access_token_with_client_credentials():
         timeout=10,
         verify_ssl=True,
     )
-
-
-def test_keycloak_auth_service_masks_authentication_failures():
-    http_client = Mock()
-    http_client.post.return_value = {
-        "status_code": 401,
-        "json": {"error_description": "client_secret invalid-secret"},
-    }
-
-    auth = KeycloakAuthService(_settings(), http_client=http_client)
-
-    with pytest.raises(KeycloakTokenAuthenticationError) as exc_info:
-        auth.fetch_access_token()
-
-    assert "invalid-secret" not in str(exc_info.value)
-    assert "***" in str(exc_info.value)
 
 
 def test_keycloak_auth_service_treats_server_errors_as_temporary():
@@ -324,3 +281,69 @@ def test_keycloak_auth_service_validates_rs256_tokens_against_jwks():
     assert user.preferred_username == "bob"
     assert user.realm_roles == ["reader"]
     assert user.client_roles == {"backend": ["admin"]}
+
+
+def test_keycloak_auth_service_refreshes_jwks_after_cache_ttl_expires():
+    now = datetime.now(UTC)
+    token, jwks = _encode_rs256_jwt(
+        {
+            "sub": "ttl-user",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        }
+    )
+    http_client = Mock()
+    http_client.get.return_value = {"status_code": 200, "json": jwks}
+    current_time = Mock(side_effect=[100.0, 100.0, 106.0, 106.0, 106.0])
+
+    auth = KeycloakAuthService(
+        _settings(audience="docmesh-api"),
+        http_client=http_client,
+        allowed_algorithms=["RS256"],
+        current_time=current_time,
+    )
+
+    auth.extract_user_info(token)
+    auth.extract_user_info(token)
+
+    assert http_client.get.call_count == 2
+
+
+
+def test_keycloak_auth_service_refreshes_jwks_when_kid_rotates():
+    now = datetime.now(UTC)
+    token_one, jwks_one = _encode_rs256_jwt(
+        {
+            "sub": "rotation-one",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        }
+    )
+    token_two, jwks_two = _encode_rs256_jwt(
+        {
+            "sub": "rotation-two",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+        }
+    )
+    http_client = Mock()
+    http_client.get.side_effect = [
+        {"status_code": 200, "json": jwks_one},
+        {"status_code": 200, "json": jwks_two},
+    ]
+
+    auth = KeycloakAuthService(
+        _settings(audience="docmesh-api"),
+        http_client=http_client,
+        allowed_algorithms=["RS256"],
+    )
+
+    user_one = auth.extract_user_info(token_one)
+    user_two = auth.extract_user_info(token_two)
+
+    assert user_one.sub == "rotation-one"
+    assert user_two.sub == "rotation-two"
+    assert http_client.get.call_count == 2

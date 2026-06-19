@@ -1,10 +1,10 @@
 ---
 title: Keycloak 인증 흐름
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-19
 type: concept
 tags: [auth, user-info, score, python, error-handling]
-sources: []
+sources: [raw/articles/prd.md, raw/project-docs/api.md]
 confidence: high
 ---
 
@@ -14,6 +14,8 @@ confidence: high
 1. **액세스 토큰 발급** (`fetch_access_token`)
 2. **JWT 토큰 검증 + 사용자 정보 추출** (`extract_user_info`)
 3. **JWKS 기반 RS256 서명 검증**
+
+프로비저닝은 같은 모듈에 있지만 운영 성격이 달라 별도 페이지 [[keycloak-provisioning]]으로 분리한다.
 
 ## KeycloakAuthService 초기화
 
@@ -28,6 +30,7 @@ service = KeycloakAuthService(
 
 `http_client`는 `KeycloakHttpClient` Protocol을 구현하면 교체 가능.
 테스트에서 mock HTTP 클라이언트를 주입해 실제 Keycloak 없이 유닛 테스트할 수 있다.
+또한 RS256 검증의 JWKS 캐시는 `KEYCLOAK_JWKS_CACHE_TTL_SECONDS`로 제어된다.
 
 ## 액세스 토큰 발급
 
@@ -42,6 +45,9 @@ result: AccessTokenResult = service.fetch_access_token(scope="openid")
 |----------------------------|-----------|------|
 | `client_credentials` (기본) | `client_secret` | 서비스 계정 인증 |
 | `password` | `token_username`, `token_password` | 사용자 자격증명 인증 |
+
+PRD 기준으로 `scope`는 선택적 입력이며, 응답에는 최소 `access_token`, `token_type`,
+`expires_in`이 포함되어야 한다. Refresh token이 내려오면 함께 전달할 수 있다.
 
 ### 에러 계층
 
@@ -77,6 +83,9 @@ user: AuthenticatedUser = service.extract_user_info(token)
 > **score 확인**: `claims`에서 커스텀 클레임 접근 가능.  
 > `user.claims.get("score")` 또는 역할 기반 권한 레벨 활용.
 
+PRD는 표준 클레임이 일부 비어 있어도 `sub` 또는 토큰 고유 식별 정보가 있으면
+부분 결과를 허용하는 방향을 제시한다.
+
 ## JWT 서명 검증
 
 ### HS256
@@ -96,9 +105,11 @@ service = KeycloakAuthService(settings, allowed_algorithms=["RS256"])
 - `kid` 헤더로 키 선택
 - 순수 Python 구현 (cryptography 라이브러리 불필요): 모듈러 거듭제곱 + PKCS#1 v1.5 패딩 검증
 - JWKS 응답은 인메모리 캐시 (`_jwks_cache`)
+- TTL이 만료되면 JWKS를 다시 가져온다.
+- 검증 중 key rotation 또는 `kid` 변경이 감지되면 JWKS를 1회 강제 refresh해 재검증한다.
 
-> **주의**: JWKS 캐시는 인스턴스 수명 동안 유지됨. 키 롤오버 시 서비스 재시작 필요.
-> 향후 TTL 기반 캐시 전략이 필요할 수 있음. → [[jwks-cache-strategy]] (미작성)
+> **주의**: JWKS 캐시는 `KEYCLOAK_JWKS_CACHE_TTL_SECONDS` 기본값(`300`)의 영향을 받는다.
+> `0`이면 사실상 캐시를 무기한 재사용하므로, 키 롤오버 민감도가 높다면 TTL 정책을 명시적으로 관리해야 한다.
 
 ## 클레임 유효성 검증
 
@@ -107,16 +118,8 @@ service = KeycloakAuthService(settings, allowed_algorithms=["RS256"])
 2. `exp` — 현재 시각보다 미래여야 함
 3. `aud` — `KEYCLOAK_AUDIENCE` 설정 시 목록에 포함 여부 확인
 
-## Keycloak 프로비저닝
-
-```python
-provisioner = KeycloakProvisioner(settings, admin_client=my_admin_client)
-result: ProvisioningResult = provisioner.provision()
-```
-
-- `KEYCLOAK_PROVISIONING_ENABLED=true` 시 활성화
-- `KEYCLOAK_PROVISIONING_DRY_RUN=true` 시 `planned` 목록만 반환 (실제 변경 없음)
-- `admin_client`는 `KeycloakAdminClient` Protocol — 테스트에서 mock 교체 가능
+PRD는 여기서 검증 실패를 최소한 `서명 오류 / 만료 / audience 불일치 / 필수 클레임 누락 /
+지원하지 않는 알고리즘` 수준으로 구분 가능한 오류로 다루길 요구한다.
 
 ## 엔드포인트 속성
 
@@ -130,5 +133,6 @@ service.jwks_endpoint  # {issuer}/protocol/openid-connect/certs
 
 - [[settings-system]] — `KeycloakConfig` 환경 변수
 - [[service-factory-registry]] — `registry.get("keycloak")` 반환 값
+- [[keycloak-provisioning]] — 선언형 Realm/Client/Role 반영
 - [[sensitive-value-masking]] — 에러 메시지 보안
 - [[test-strategy]] — mock HTTP 클라이언트를 이용한 유닛 테스트 패턴

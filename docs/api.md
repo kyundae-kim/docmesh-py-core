@@ -49,14 +49,22 @@ from docmesh_py_core import (
     KeycloakTokenError,
     KeycloakTokenTemporaryError,
     NatsConnectionBuilder,
+    Page,
+    ServiceClientError,
     ServiceClientWrapper,
+    ServiceClientWrapperError,
     ServiceFactoryRegistry,
     Settings,
     SqliteConfig,
     TokenValidationError,
+    UnsupportedServiceError,
+    build_service_log_event,
+    build_settings_snapshot,
     check_all_services,
     load_settings,
     mask_sensitive_value,
+    retry_call,
+    to_serializable,
 )
 ```
 
@@ -167,11 +175,16 @@ minio.check()
 | `langfuse` | `ServiceClientWrapper \| None` |
 | `nats` | `NatsConnectionBuilder` |
 
+대표 예외:
+
+- `UnsupportedServiceError`: 지원하지 않는 서비스명을 요청한 경우
+- `ServiceClientWrapperError`: 공통 health check 호출이 표준화된 오류로 감싸진 경우
+
 주의:
 
 - `langfuse`는 비활성화 시 `None`일 수 있다.
 - `nats`는 연결된 client가 아니라 비동기 builder다.
-- 지원하지 않는 서비스명은 `KeyError`가 발생한다.
+- 지원하지 않는 서비스명은 `UnsupportedServiceError`가 발생한다.
 
 ### `ServiceClientWrapper`
 
@@ -235,12 +248,13 @@ asyncio.run(main())
 
 ## 6. 헬스체크 API
 
-### `check_all_services(service_checks, required_services=None)`
+### `check_all_services(service_checks, required_services=None, parallel=False)`
 
 역할:
 
 - 여러 서비스의 health check 함수를 한 번에 실행한다.
 - 서비스별 성공 여부, 지연 시간, 오류를 집계한다.
+- `parallel=True`이면 thread pool로 병렬 실행하면서 입력 순서를 유지한다.
 - 필수 서비스가 실패하면 `HealthCheckError`를 발생시킨다.
 
 예시:
@@ -254,6 +268,15 @@ result = check_all_services(
         "minio": minio.check,
     },
     required_services={"postgres"},
+)
+
+parallel_result = check_all_services(
+    {
+        "postgres": postgres.check,
+        "minio": minio.check,
+    },
+    required_services={"postgres"},
+    parallel=True,
 )
 
 print(result.ok)
@@ -332,6 +355,8 @@ print(token.expires_in)
 - issuer
 - expiry
 - audience(설정된 경우)
+- RS256 사용 시 JWKS 캐시 TTL 만료 후 재조회
+- RS256 검증 중 key rotation이 감지되면 JWKS 1회 강제 refresh
 
 예시:
 
@@ -395,7 +420,7 @@ print(result.created, result.updated, result.failed)
 
 ---
 
-## 8. 보안 유틸리티
+## 8. 보안 및 관측성 유틸리티
 
 ### `mask_sensitive_value(raw)`
 
@@ -419,9 +444,77 @@ print(mask_sensitive_value("token: abc123"))
 - 예외 메시지 노출 전
 - 운영 화면에 연결 정보나 오류를 보여주기 전
 
+### `build_service_log_event(...)`
+
+역할:
+
+- 서비스 연결/재시도/성공/실패 이벤트를 구조화된 dict로 만든다.
+- `error`와 민감해 보이는 추가 필드를 자동 마스킹한다.
+
+예시:
+
+```python
+from docmesh_py_core import build_service_log_event
+
+event = build_service_log_event(
+    service="keycloak",
+    operation="fetch_access_token",
+    outcome="temporary_error",
+    host="https://kc.example.com",
+    retry_count=1,
+    latency_ms=250,
+    error="token=abc123",
+)
+```
+
+### `retry_call(operation, ..., retry_on, max_attempts)`
+
+역할:
+
+- 일시적 오류에 대해 동기 함수를 재시도한다.
+- 기본 지수 백오프는 `base_delay_seconds * 2**(attempt-1)` 패턴을 사용한다.
+- 재시도 대상이 아닌 예외는 즉시 다시 발생시킨다.
+
+예시:
+
+```python
+from docmesh_py_core import retry_call
+
+result = retry_call(
+    flaky_operation,
+    retry_on=(TemporaryError,),
+    max_attempts=3,
+)
+```
+
 ---
 
-## 9. 자주 하는 실수
+## 9. 직렬화 / 페이지네이션 / 스냅샷 유틸리티
+
+### `to_serializable(value)`
+
+역할:
+
+- dataclass, Pydantic model, datetime/date, Path, set 등을 JSON-friendly 구조로 정규화한다.
+- 복합 중첩 구조에서도 재귀적으로 동작한다.
+
+### `Page.from_items(items, total, page, page_size)`
+
+역할:
+
+- 표준 페이지네이션 응답 모델을 만든다.
+- `total_pages`, `has_next`, `has_previous`를 함께 계산한다.
+
+### `build_settings_snapshot(settings)`
+
+역할:
+
+- `Settings` 또는 유사 설정 객체를 직렬화 가능한 dict snapshot으로 만든다.
+- secret/token/password/key 및 endpoint credential을 마스킹한 운영용 출력에 적합하다.
+
+---
+
+## 10. 자주 하는 실수
 
 ### `Settings()`를 바로 생성하는 것
 

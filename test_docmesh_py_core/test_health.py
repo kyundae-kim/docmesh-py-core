@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from threading import Event
 from unittest.mock import Mock
 
+import pytest
+
 from docmesh_py_core.health import HealthCheckError, check_all_services
+
+
+pytestmark = [pytest.mark.unit, pytest.mark.health]
 
 
 class _Timer:
@@ -42,6 +48,54 @@ def test_check_all_services_raises_for_required_service_failure():
     except HealthCheckError as exc:
         assert exc.service == "postgres"
         assert "hunter2" not in str(exc)
+        assert "***" in str(exc)
+    else:
+        raise AssertionError("HealthCheckError was not raised")
+
+
+def test_check_all_services_supports_parallel_execution_while_preserving_input_order():
+    first_started = Event()
+    second_started = Event()
+    release_checks = Event()
+
+    def first_check():
+        first_started.set()
+        assert second_started.wait(timeout=0.2), "second check did not start in parallel"
+        assert release_checks.wait(timeout=0.2), "parallel check did not finish in time"
+
+    def second_check():
+        second_started.set()
+        assert first_started.wait(timeout=0.2), "first check did not start in time"
+        release_checks.set()
+
+    result = check_all_services(
+        {"postgres": first_check, "minio": second_check},
+        parallel=True,
+    )
+
+    assert result.ok is True
+    assert [status.service for status in result.services] == ["postgres", "minio"]
+
+
+def test_check_all_services_parallel_mode_still_masks_required_service_failures():
+    release_checks = Event()
+
+    def required_check():
+        release_checks.wait(timeout=0.2)
+        raise RuntimeError("token=very-secret")
+
+    def optional_check():
+        release_checks.set()
+
+    try:
+        check_all_services(
+            {"postgres": required_check, "minio": optional_check},
+            required_services={"postgres"},
+            parallel=True,
+        )
+    except HealthCheckError as exc:
+        assert exc.service == "postgres"
+        assert "very-secret" not in str(exc)
         assert "***" in str(exc)
     else:
         raise AssertionError("HealthCheckError was not raised")
