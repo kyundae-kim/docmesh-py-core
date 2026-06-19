@@ -1,7 +1,7 @@
 ---
 title: 서비스 팩토리 레지스트리
 created: 2026-06-10
-updated: 2026-06-11
+updated: 2026-06-19
 type: concept
 tags: [factory-pattern, service-connection, sdk-design, async]
 sources: [raw/project-docs/api.md, raw/project-docs/sdk.md]
@@ -75,6 +75,14 @@ keycloak = registry.create_client("keycloak")
 nats_builder = registry.create_client("nats")
 ```
 
+## 예외 계약
+
+- `UnsupportedServiceError` — 지원하지 않는 서비스명을 요청한 경우
+- `ServiceClientWrapperError` — 공통 health check/close 흐름에서 표준화된 래퍼 오류가 발생한 경우
+- `ServiceClientError` — 서비스 클라이언트 계층의 기반 예외로 사용되는 공통 타입
+
+즉, 소비자는 서비스별 SDK 고유 예외에만 의존하지 않고 레지스트리 계층의 표준 예외도 함께 고려해야 한다.
+
 ## 지원 서비스 및 헬스체크 전략
 
 | 서비스 | 클라이언트 | 헬스체크 메서드 | 반환 타입 |
@@ -112,9 +120,17 @@ async def cleanup(nats_client):
     # drain() → awaitable 이면 await, 아니면 close() 시도
 ```
 
+## 소비 프로젝트 통합 팁
+
+- `create_client()`는 필요한 서비스만 선택적으로 호출하는 것이 권장 패턴이다.^[raw/project-docs/sdk.md]
+- 애플리케이션 시작 시에는 개별 `check()` 호출이나 [[health-check-pattern]]의 `check_all_services()`로 readiness를 구성한다.
+- 종료 시 `registry.close_all()`이 동기 클라이언트 정리를 한곳에서 담당한다.
+- NATS는 `create_client("nats")`가 이미 연결된 클라이언트가 아니라 빌더를 반환하므로, 앱 코드가 `await builder.connect()` 또는 `await builder.check()`를 직접 호출해야 한다.
+
 ## 관련 개념
 
 - [[settings-system]] — 설정 공급 계층
 - [[health-check-pattern]] — 헬스체크 결과 집계
 - [[keycloak-auth-flow]] — keycloak 서비스의 실제 기능
 - [[nats]] — NATS 서비스 상세
+- [[observability-utilities]] — 서비스 이벤트를 구조화된 로그로 남길 때 함께 쓰는 유틸리티

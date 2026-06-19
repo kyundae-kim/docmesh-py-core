@@ -1,7 +1,7 @@
 ---
 title: 테스트 전략
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-19
 type: concept
 tags: [test-strategy, unit-test, integration-test, python]
 sources: [raw/articles/prd.md, raw/project-docs/test.md]
@@ -95,6 +95,7 @@ result = provisioner.provision()
 - 조건부 필수값 + 상호 배타 조건 검증
 - `LANGFUSE_ENABLED=false` 시 Langfuse key 미입력 허용
 - `POSTGRES_DSN` 우선 적용
+- SQLite `:memory:` / 상대경로 / 잘못된 상위 디렉터리 검증
 
 ### 서비스 팩토리
 
@@ -102,6 +103,7 @@ result = provisioner.provision()
 - `Langfuse enabled=false`면 `None` 반환
 - NATS가 event loop를 임의 생성/종료하지 않는지
 - 각 wrapper의 `check()`가 서비스별 health call을 수행하는지
+- PostgreSQL/SQLite가 같은 상위 저장소 선택 흐름에서 호환되는지
 
 ### 헬스체크 집계
 
@@ -109,17 +111,20 @@ result = provisioner.provision()
 - optional 실패 시 `ok=False`, 예외 미발생
 - required 실패 시 `HealthCheckError` 발생
 - 예외 메시지에 password/token/secret 미노출
+- 병렬 모드에서도 결과 순서 유지
 
 ### 민감정보 마스킹
 
 - DSN/URI의 비밀번호·토큰·query parameter 마스킹
 - `token=abc123` 포함 문자열에서 token 값 마스킹
 - Keycloak/OIDC 오류 응답 원문의 secret/token 숨김
+- SQLite 파일 경로가 과도하게 노출되지 않는지 검증
 
 ### Keycloak 토큰 획득
 
 - client_credentials / password grant 분기
-- `access_token`, `token_type`, `expires_in` 파싱
+- 선택적 `scope` 전달
+- `access_token`, `token_type`, `expires_in`, `refresh_token` 파싱
 - 401 → 인증 오류 / timeout, 5xx → 일시적 오류 / 잘못된 input → 설정 오류
 
 ### JWT 검증 / 사용자 정보 추출
@@ -127,21 +132,24 @@ result = provisioner.provision()
 - 정상 JWT에서 `sub`, `preferred_username`, `email`, `realm_roles`, `client_roles` 추출
 - 만료 토큰 거부
 - 잘못된 서명/kid 거부, audience mismatch 거부
+- 표준 클레임 일부 누락 시 부분 결과 허용 여부 검증
 
 ### Keycloak 프로비저닝
 
 - realm/client/role 생성·갱신 판단
 - dry-run 시 실제 변경 없음
 - 선언에서 빠진 리소스는 삭제하지 않음
+- 부분 실패 결과 분류
+- 반복 실행 시 멱등성 유지
 
 ## 통합 테스트
 
 ### 활성화 방법
 
 ```bash
-DOCMESH_ENV=integration pytest test_docmesh_py_core/test_integration_services.py
+DOCMESH_ENV=integration uv run pytest -q test_docmesh_py_core/test_integration_services.py
 # 또는 마커 기반
-DOCMESH_ENV=integration pytest -m integration
+DOCMESH_ENV=integration uv run pytest -q -m integration
 ```
 
 `DOCMESH_ENV=integration` 없으면 `pytest.skip`으로 자동 건너뜀.
@@ -152,6 +160,7 @@ DOCMESH_ENV=integration pytest -m integration
 |--------|-----------|
 | Keycloak | token endpoint 실제 호출, provisioning dry-run/apply/idempotency |
 | PostgreSQL | `SELECT 1` 성공, 잘못된 credential 시 실패 분류 |
+| SQLite | `:memory:`/파일 경로/읽기 전용/잘못된 경로 분기 |
 | MinIO | `list_buckets()` 성공, 잘못된 access/secret key 실패 |
 | Milvus | 연결 + `list_collections()` 성공 |
 | Ollama | `ps()` 성공, host 미도달 시 timeout |
@@ -180,26 +189,26 @@ pytestmark = [pytest.mark.integration]
 
 ```bash
 # 단위 테스트만 (기본 CI)
-pytest -q test_docmesh_py_core
+uv run pytest -q test_docmesh_py_core
 
 # 통합 테스트
-DOCMESH_ENV=integration pytest -q test_docmesh_py_core/test_integration_services.py
+DOCMESH_ENV=integration uv run pytest -q test_docmesh_py_core/test_integration_services.py
 
 # 특정 모듈
-pytest -q test_docmesh_py_core/test_keycloak.py
+uv run pytest -q test_docmesh_py_core/test_keycloak.py
 ```
 
-## 릴리스 전 최소 체크리스트
+## PRD 완료 기준과 직접 연결되는 체크리스트
 
-- [ ] 모든 설정 모델 기본값 테스트
-- [ ] 모든 필수 env 누락 테스트
-- [ ] 모든 조건부 필수값 조합 테스트
-- [ ] 모든 서비스 builder 인자 매핑 테스트
-- [ ] 모든 서비스 `ping/check` wrapper 테스트
-- [ ] health 집계 성공/실패 테스트
-- [ ] 민감정보 마스킹 테스트
-- [ ] Keycloak token grant 테스트
-- [ ] JWT 검증 성공/실패 테스트
+- [ ] 8개 서비스 설정 객체/클라이언트 생성 인터페이스 검증
+- [ ] 필수 env 누락/잘못된 타입 테스트
+- [ ] 서비스별 정상 연결 및 대표 실패 분류 테스트
+- [ ] SQLite `:memory:`/read-only/잘못된 경로 테스트
+- [ ] 민감정보 비노출 테스트
+- [ ] 각 클라이언트의 check/close 계약 테스트
+- [ ] Keycloak provisioning 생성/갱신/멱등성/Dry-run/부분 실패 테스트
+- [ ] Keycloak token 획득 성공/실패/비노출 테스트
+- [ ] JWT 검증 성공/만료/서명 오류/audience 불일치 테스트
 - [ ] `.env.example`와 설정 모델 동기화 테스트
 
 ## Pitfalls
@@ -214,5 +223,6 @@ pytest -q test_docmesh_py_core/test_keycloak.py
 - [[docmesh-sdk-overview]] — SDK 전체 구조
 - [[settings-system]] — `load_settings` 사용법
 - [[keycloak-auth-flow]] — mock HTTP 클라이언트 패턴
+- [[keycloak-provisioning]] — provisioning 회귀 테스트 범위
 - [[health-check-pattern]] — 타이머 주입 패턴
 - [[sensitive-value-masking]] — 마스킹 검증 대상

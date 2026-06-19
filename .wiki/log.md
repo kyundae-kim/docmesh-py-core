@@ -5,6 +5,50 @@
 > Actions: ingest, update, query, lint, create, archive, delete
 > 500개 항목 초과 시 `log-YYYY.md`로 회전 후 새로 시작.
 
+## [2026-06-19] ingest | docs/sdk.md
+
+- `raw/project-docs/sdk.md`는 living doc 심볼릭 링크로 최신 본문을 그대로 참조
+- 업데이트 파일:
+  - `concepts/docmesh-sdk-overview.md` — 표준 사용 흐름, 빠른 시작의 전제, 소비자용 문서 진입 순서 보강
+  - `concepts/service-factory-registry.md` — 필요한 서비스만 생성, readiness 구성, `close_all()`, NATS 비동기 사용 팁 반영
+  - `entities/nats.md` — 소비 프로젝트 관점의 `NatsConnectionBuilder` 사용법과 비동기 연결 패턴 추가
+- 유지 확인:
+  - `index.md` — 총 페이지 수 변화 없음 (`21`)
+
+## [2026-06-19] ingest | docs/config.md
+
+- `raw/project-docs/config.md`는 living doc 심볼릭 링크로 최신 본문을 그대로 참조
+- 업데이트 파일:
+  - `concepts/settings-system.md` — `KEYCLOAK_JWKS_CACHE_TTL_SECONDS`, 프로비저닝 인증 모드, SQLite 상대경로, `DOCMESH_ENV=integration` 규칙 반영
+  - `concepts/keycloak-auth-flow.md` — JWKS TTL/refresh 동작과 key rotation 대응 설명 보강
+- 유지 확인:
+  - `entities/sqlite.md` — config 문서와 이미 합치되는 SQLite 요구사항(상대경로, WAL, busy timeout, `:memory:`) 재확인
+  - `index.md` — 총 페이지 수 변화 없음 (`21`)
+
+## [2026-06-19] ingest | docs/api.md
+
+- `raw/project-docs/api.md`는 living doc 심볼릭 링크로 최신 본문을 그대로 참조
+- 생성 파일:
+  - `concepts/observability-utilities.md` — `build_service_log_event()` 구조화 로그 유틸리티 정리
+  - `concepts/serialization-and-snapshots.md` — `to_serializable()`와 `build_settings_snapshot()` 정리
+  - `concepts/pagination-and-retry.md` — `Page`와 `retry_call()` 공통 유틸리티 정리
+- 업데이트 파일:
+  - `concepts/docmesh-sdk-overview.md` — 공개 API 범위를 범용 유틸리티까지 확장 반영
+  - `concepts/service-factory-registry.md` — 표준 예외 계약 및 관측성 연결 보강
+  - `index.md` — Concepts 섹션/Total pages 갱신
+
+## [2026-06-19] ingest | docs/prd.md 재흡수
+
+- raw source drift 확인: `docs/prd.md`와 기존 `raw/articles/prd.md`의 sha256 불일치 확인 후 raw source 갱신
+- 갱신 파일:
+  - `raw/articles/prd.md` — SQLite, 컴포넌트 구성, 완료 기준, 위험/대응이 반영된 최신 PRD 본문 + sha256 갱신
+  - `concepts/docmesh-sdk-overview.md` — PRD 기준 컴포넌트 맵 및 SQLite/PRD 문서 역할 반영
+  - `concepts/keycloak-auth-flow.md` — scope/refresh token/부분 클레임/오류 구분 요구사항 반영
+  - `concepts/keycloak-provisioning.md` — 신규 생성. 선언형 프로비저닝, Dry-run, 멱등성, 부분 실패 계약 정리
+  - `concepts/test-strategy.md` — SQLite/프로비저닝/uv run pytest 기반 최신 검증 계약 반영
+  - `entities/sqlite.md` — 상대경로, read-only, WAL, 잘못된 경로 요구사항 반영
+  - `index.md` — Concepts 섹션과 Total pages 갱신
+
 ## [2026-06-16] query | 다음 개발 우선순위 재평가
 
 - 질의: "다음 개발 할 것은?"

@@ -1,10 +1,10 @@
 ---
 title: NATS
 created: 2026-06-10
-updated: 2026-06-10
+updated: 2026-06-19
 type: entity
 tags: [service-connection, async]
-sources: [raw/articles/prd.md, raw/project-docs/config.md]
+sources: [raw/articles/prd.md, raw/project-docs/config.md, raw/project-docs/sdk.md, raw/project-docs/api.md]
 confidence: high
 ---
 
@@ -35,6 +35,20 @@ NATS 연결(`nats.connect`)은 코루틴이므로 팩토리가 직접 연결을 
 | `NATS_NAME` | - | `docmesh-py-core` | 연결 식별자 |
 | `NATS_CONNECT_TIMEOUT_SECONDS` | - | `10` | 연결 타임아웃 |
 | `NATS_MAX_RECONNECT_ATTEMPTS` | - | `10` | 재연결 시도 횟수 |
+
+## 소비 프로젝트에서의 사용법
+
+`create_client("nats")`는 연결된 동기 클라이언트를 반환하지 않는다. 소비 프로젝트는
+반환된 `NatsConnectionBuilder`를 받아 아래처럼 비동기 문맥에서 연결해야 한다.^[raw/project-docs/sdk.md]
+
+```python
+builder = registry.create_client("nats")
+connection = await builder.connect()
+await connection.flush()
+```
+
+연결 확인만 필요하면 `await builder.check()` 패턴을 사용할 수 있다. 이 차이를 놓치면
+다른 서비스와 동일하게 `.check()`를 즉시 동기 호출하려다 통합 오류가 발생하기 쉽다.
 
 ## 관련 개념
 
