@@ -26,21 +26,20 @@ uv sync
 ### 다른 프로젝트에서 GitHub 소스로 추가할 때
 
 ```bash
-uv add git+https://github.com/<org>/<repo>.git
+uv add git+https://github.com/kyundae-kim/docmesh-py-core.git
 ```
 
 특정 브랜치, 태그, 커밋을 고정하려면 예를 들어 다음 형태를 사용합니다.
 
 ```bash
-uv add git+https://github.com/<org>/<repo>.git@main
-uv add git+https://github.com/<org>/<repo>.git@v0.1.1
-uv add git+https://github.com/<org>/<repo>.git@<commit-sha>
+uv add git+https://github.com/kyundae-kim/docmesh-py-core.git@main
+uv add git+https://github.com/kyundae-kim/docmesh-py-core.git@v0.1.2
 ```
 
 패키지 이름을 명시적으로 별칭처럼 적고 싶다면 다음 형태도 사용할 수 있습니다.
 
 ```bash
-uv add docmesh-py-core @ git+https://github.com/<org>/<repo>.git
+uv add docmesh-py-core @ git+https://github.com/kyundae-kim/docmesh-py-core.git
 ```
 
 Python 요구사항:
