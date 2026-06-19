@@ -3,7 +3,12 @@ from __future__ import annotations
 from threading import Event
 from unittest.mock import Mock
 
+import pytest
+
 from docmesh_py_core.health import HealthCheckError, check_all_services
+
+
+pytestmark = [pytest.mark.unit, pytest.mark.health]
 
 
 class _Timer:

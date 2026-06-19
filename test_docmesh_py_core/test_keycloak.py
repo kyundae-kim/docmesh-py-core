@@ -20,7 +20,7 @@ from docmesh_py_core.keycloak import (
 )
 
 
-pytestmark = [pytest.mark.keycloak]
+pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
 
 
 def _settings(*, audience: str | None = None):

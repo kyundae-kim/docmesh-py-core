@@ -4,6 +4,9 @@ import pytest
 
 from pydantic_settings import BaseSettings
 
+
+pytestmark = [pytest.mark.unit]
+
 from docmesh_py_core.config import (
     ConfigError,
     KeycloakConfig,

@@ -8,7 +8,7 @@ from docmesh_py_core.config import load_settings
 from docmesh_py_core.keycloak import KeycloakProvisioner
 
 
-pytestmark = [pytest.mark.keycloak]
+pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
 
 
 def _settings(*, dry_run: bool = False):

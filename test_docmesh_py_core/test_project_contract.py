@@ -3,8 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 import tomllib
 
+import pytest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_pytest_markers_are_registered_for_documented_test_slices():
@@ -64,3 +69,39 @@ def test_integration_tests_use_shared_helpers_from_conftest():
     assert "integration_env" in integration_tests
     assert "require_integration_environment" in integration_tests
     assert "service_env" in integration_tests
+
+
+def test_integration_test_module_documents_explicit_docmesh_env_gate():
+    integration_tests = (PROJECT_ROOT / "test_docmesh_py_core" / "test_integration_services.py").read_text(encoding="utf-8")
+    conftest = (PROJECT_ROOT / "test_docmesh_py_core" / "conftest.py").read_text(encoding="utf-8")
+
+    assert 'pytestmark = [pytest.mark.integration]' in integration_tests
+    assert 'INTEGRATION_ENV_NAME = "integration"' in conftest
+    assert 'current_env != INTEGRATION_ENV_NAME' in conftest
+    assert 'pytest.skip("Set DOCMESH_ENV=integration to run real-service integration tests")' in conftest
+
+
+def test_docs_and_contracts_use_docmesh_env_integration_selector_consistently():
+    test_guide = (PROJECT_ROOT / "docs" / "test.md").read_text(encoding="utf-8")
+    env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    assert 'DOCMESH_ENV=integration uv run pytest -q -m integration' in test_guide
+    assert '별도 플래그가 아니라 `DOCMESH_ENV=integration`' in test_guide
+    assert 'DOCMESH_ENV=development' in env_example
+
+
+def test_non_integration_test_modules_declare_documented_pytest_slices():
+    expected_module_markers = {
+        'test_config.py': 'pytestmark = [pytest.mark.unit]',
+        'test_env_example.py': 'pytestmark = [pytest.mark.unit]',
+        'test_factories.py': 'pytestmark = [pytest.mark.unit]',
+        'test_health.py': 'pytestmark = [pytest.mark.unit, pytest.mark.health]',
+        'test_keycloak.py': 'pytestmark = [pytest.mark.unit, pytest.mark.keycloak]',
+        'test_keycloak_provisioning.py': 'pytestmark = [pytest.mark.unit, pytest.mark.keycloak]',
+        'test_project_contract.py': 'pytestmark = [pytest.mark.unit]',
+        'test_security.py': 'pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.keycloak]',
+    }
+
+    for file_name, marker_snippet in expected_module_markers.items():
+        content = (PROJECT_ROOT / 'test_docmesh_py_core' / file_name).read_text(encoding='utf-8')
+        assert marker_snippet in content, file_name

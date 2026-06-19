@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from sqlalchemy.engine import URL
 
+
+pytestmark = [pytest.mark.unit]
+
 from docmesh_py_core.config import load_settings
 from docmesh_py_core.factories import NatsConnectionBuilder, ServiceClientWrapper, ServiceFactoryRegistry
 
