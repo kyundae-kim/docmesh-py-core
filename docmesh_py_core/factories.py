@@ -16,19 +16,52 @@ from sqlalchemy import create_engine, event
 
 from .config import KeycloakConfig, NatsConfig, PostgresConfig, Settings, SqliteConfig
 from .keycloak import KeycloakAuthService
+from .security import mask_sensitive_value
 
 Builder = Callable[[Any], Any]
 HealthCheck = Callable[[], Any]
+
+
+class ServiceClientError(RuntimeError):
+    def __init__(self, *, service: str, operation: str, error_type: str, error: str):
+        super().__init__(f"{service} {operation} failed ({error_type}): {error}")
+        self.service = service
+        self.operation = operation
+        self.error_type = error_type
+        self.error = error
+
+
+class ServiceClientWrapperError(ServiceClientError):
+    pass
+
+
+class UnsupportedServiceError(ServiceClientError):
+    def __init__(self, service: str):
+        super().__init__(
+            service=service,
+            operation="create_client",
+            error_type="unsupported_service",
+            error="unsupported service name",
+        )
 
 
 @dataclass
 class ServiceClientWrapper:
     client: Any
     healthcheck: HealthCheck
+    service_name: str = "unknown"
     close_fn: Callable[[], Any] | None = None
 
     def ping(self) -> Any:
-        return self.healthcheck()
+        try:
+            return self.healthcheck()
+        except Exception as exc:
+            raise ServiceClientWrapperError(
+                service=self.service_name,
+                operation="healthcheck",
+                error_type=_error_type(exc),
+                error=mask_sensitive_value(str(exc)) or "unknown error",
+            ) from exc
 
     def check(self) -> Any:
         return self.ping()
@@ -124,7 +157,7 @@ class ServiceFactoryRegistry:
 
     def create_client(self, service_name: str) -> Any:
         if service_name not in self._builders:
-            raise KeyError(f"Unsupported service: {service_name}")
+            raise UnsupportedServiceError(service_name)
         if service_name not in self._clients:
             builder, config = self._builders[service_name]
             built_client = builder(config)
@@ -144,26 +177,26 @@ class ServiceFactoryRegistry:
         if client is None or isinstance(client, (ServiceClientWrapper, NatsConnectionBuilder)):
             return client
         if service_name == "keycloak":
-            return ServiceClientWrapper(client=client, healthcheck=client.fetch_access_token)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=client.fetch_access_token)
         if service_name == "postgres":
-            return ServiceClientWrapper(client=client, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
         if service_name == "sqlite":
-            return ServiceClientWrapper(client=client, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=lambda: _check_postgres(client), close_fn=client.dispose)
         if service_name == "minio":
-            return ServiceClientWrapper(client=client, healthcheck=client.list_buckets)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=client.list_buckets)
         if service_name == "milvus":
-            return ServiceClientWrapper(client=client, healthcheck=client.list_collections)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=client.list_collections)
         if service_name == "ollama":
-            return ServiceClientWrapper(client=client, healthcheck=client.ps)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=client.ps)
         if service_name == "langfuse":
-            return ServiceClientWrapper(client=client, healthcheck=client.auth_check, close_fn=client.flush)
+            return ServiceClientWrapper(client=client, service_name=service_name, healthcheck=client.auth_check, close_fn=client.flush)
         if service_name == "nats":
             return client
         raise KeyError(f"Unsupported service: {service_name}")
 
     def _build_keycloak_client(self, _: KeycloakConfig) -> ServiceClientWrapper:
         client = KeycloakAuthService(self.settings)
-        return ServiceClientWrapper(client=client, healthcheck=client.fetch_access_token)
+        return ServiceClientWrapper(client=client, service_name="keycloak", healthcheck=client.fetch_access_token)
 
     def _build_postgres_client(self, config: PostgresConfig) -> ServiceClientWrapper:
         client = create_engine(
@@ -300,3 +333,13 @@ async def _close_async_client(client: Any) -> None:
         close_result = close_method()
         if inspect.isawaitable(close_result):
             await close_result
+
+
+def _error_type(exc: Exception) -> str:
+    name = exc.__class__.__name__
+    characters: list[str] = []
+    for index, char in enumerate(name):
+        if char.isupper() and index > 0:
+            characters.append("_")
+        characters.append(char.lower())
+    return "".join(characters) or "error"

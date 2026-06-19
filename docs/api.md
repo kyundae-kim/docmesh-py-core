@@ -49,11 +49,14 @@ from docmesh_py_core import (
     KeycloakTokenError,
     KeycloakTokenTemporaryError,
     NatsConnectionBuilder,
+    ServiceClientError,
     ServiceClientWrapper,
+    ServiceClientWrapperError,
     ServiceFactoryRegistry,
     Settings,
     SqliteConfig,
     TokenValidationError,
+    UnsupportedServiceError,
     build_service_log_event,
     check_all_services,
     load_settings,
@@ -168,6 +171,11 @@ minio.check()
 | `ollama` | `ServiceClientWrapper` |
 | `langfuse` | `ServiceClientWrapper \| None` |
 | `nats` | `NatsConnectionBuilder` |
+
+대표 예외:
+
+- `UnsupportedServiceError`: 지원하지 않는 서비스명을 요청한 경우
+- `ServiceClientWrapperError`: 공통 health check 호출이 표준화된 오류로 감싸진 경우
 
 주의:
 
