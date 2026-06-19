@@ -49,6 +49,7 @@ from docmesh_py_core import (
     KeycloakTokenError,
     KeycloakTokenTemporaryError,
     NatsConnectionBuilder,
+    Page,
     ServiceClientError,
     ServiceClientWrapper,
     ServiceClientWrapperError,
@@ -58,10 +59,12 @@ from docmesh_py_core import (
     TokenValidationError,
     UnsupportedServiceError,
     build_service_log_event,
+    build_settings_snapshot,
     check_all_services,
     load_settings,
     mask_sensitive_value,
     retry_call,
+    to_serializable,
 )
 ```
 
@@ -476,7 +479,32 @@ result = retry_call(
 
 ---
 
-## 9. 자주 하는 실수
+## 9. 직렬화 / 페이지네이션 / 스냅샷 유틸리티
+
+### `to_serializable(value)`
+
+역할:
+
+- dataclass, Pydantic model, datetime/date, Path, set 등을 JSON-friendly 구조로 정규화한다.
+- 복합 중첩 구조에서도 재귀적으로 동작한다.
+
+### `Page.from_items(items, total, page, page_size)`
+
+역할:
+
+- 표준 페이지네이션 응답 모델을 만든다.
+- `total_pages`, `has_next`, `has_previous`를 함께 계산한다.
+
+### `build_settings_snapshot(settings)`
+
+역할:
+
+- `Settings` 또는 유사 설정 객체를 직렬화 가능한 dict snapshot으로 만든다.
+- secret/token/password/key 및 endpoint credential을 마스킹한 운영용 출력에 적합하다.
+
+---
+
+## 10. 자주 하는 실수
 
 ### `Settings()`를 바로 생성하는 것
 
