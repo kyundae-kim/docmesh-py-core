@@ -161,8 +161,7 @@ SQLite는 로컬 개발, 단위 테스트, 경량 통합 테스트에서 Postgre
 - SQLite를 사용하지 않으면 위 환경변수는 비워둘 수 있다.
 - `SQLITE_PATH=:memory:`는 프로세스 내 메모리 DB를 의미한다.
 - 상대 경로는 애플리케이션 작업 디렉터리를 기준으로 해석한다.
-- 파일 기반 SQLite는 상위 디렉터리가 존재해야 하며, 없으면 명확한 설정 오류를 반환한다.
-- health check는 파일 접근 가능 여부 확인과 `SELECT 1` 실행으로 구성한다.
+- 현재 구현의 기본 health check는 `SELECT 1` 실행이다.
 - 파일 경로는 로그/예외에 그대로 남기기보다 필요 시 축약 또는 마스킹한다.
 
 ---
@@ -183,7 +182,7 @@ SQLite는 로컬 개발, 단위 테스트, 경량 통합 테스트에서 Postgre
 규칙:
 
 - endpoint는 `host:port` 형태를 권장한다.
-- health check는 bucket 존재 확인 또는 서버 응답 확인 방식으로 구현할 수 있다.
+- 현재 기본 health check는 `list_buckets()` 호출이다.
 - secret key는 로그/예외/디버그 출력에 포함하지 않는다.
 
 ---
@@ -204,6 +203,7 @@ SQLite는 로컬 개발, 단위 테스트, 경량 통합 테스트에서 Postgre
 규칙:
 
 - health check는 서버 연결 확인 또는 collection 조회로 구현한다.
+- 현재 기본 health check는 `list_collections()` 호출이다.
 - token 사용 시 예외 메시지에 원문이 노출되지 않도록 한다.
 
 ---
@@ -220,7 +220,7 @@ SQLite는 로컬 개발, 단위 테스트, 경량 통합 테스트에서 Postgre
 
 규칙:
 
-- health check는 버전 조회, 프로세스 조회, 모델 목록 조회 중 하나로 구현 가능하다.
+- 현재 기본 health check는 `ps()` 호출이다.
 - 모델명은 선택값이며 패키지 수준에서 모델 다운로드를 강제하지 않는다.
 
 ---
@@ -242,7 +242,7 @@ SQLite는 로컬 개발, 단위 테스트, 경량 통합 테스트에서 Postgre
 
 - `LANGFUSE_ENABLED=false`이면 나머지 Langfuse 값은 선택 처리 가능하다.
 - Langfuse 장애가 핵심 애플리케이션 기능을 중단시키지 않도록 선택적 비활성화를 지원한다.
-- health check는 인증 API 요청 또는 클라이언트 검증 방식으로 수행한다.
+- 현재 기본 health check는 `auth_check()` 호출이다.
 
 ---
 
@@ -266,7 +266,7 @@ SQLite는 로컬 개발, 단위 테스트, 경량 통합 테스트에서 Postgre
   - token
   - creds file
 - `NATS_SERVERS`는 쉼표 구분 목록으로 파싱한다.
-- health check는 connect 후 ping/pong 또는 flush 확인으로 수행한다.
+- 현재 health check는 connect 후 `flush()` 확인이다.
 - 비동기 SDK 특성에 맞게 이벤트 루프를 임의 생성/종료하지 않는다.
 
 ---

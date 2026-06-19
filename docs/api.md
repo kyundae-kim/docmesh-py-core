@@ -248,12 +248,13 @@ asyncio.run(main())
 
 ## 6. 헬스체크 API
 
-### `check_all_services(service_checks, required_services=None)`
+### `check_all_services(service_checks, required_services=None, parallel=False)`
 
 역할:
 
 - 여러 서비스의 health check 함수를 한 번에 실행한다.
 - 서비스별 성공 여부, 지연 시간, 오류를 집계한다.
+- `parallel=True`이면 thread pool로 병렬 실행하면서 입력 순서를 유지한다.
 - 필수 서비스가 실패하면 `HealthCheckError`를 발생시킨다.
 
 예시:
@@ -267,6 +268,15 @@ result = check_all_services(
         "minio": minio.check,
     },
     required_services={"postgres"},
+)
+
+parallel_result = check_all_services(
+    {
+        "postgres": postgres.check,
+        "minio": minio.check,
+    },
+    required_services={"postgres"},
+    parallel=True,
 )
 
 print(result.ok)
