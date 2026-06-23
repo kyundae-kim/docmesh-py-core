@@ -284,7 +284,7 @@ def _postgres_url(config: PostgresConfig) -> str | URL:
     if config.dsn:
         return make_url(config.dsn)
     return URL.create(
-        "postgresql",
+        "postgresql+psycopg",
         username=config.user or "",
         password=config.password or "",
         host=config.host or "localhost",

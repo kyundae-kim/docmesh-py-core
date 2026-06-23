@@ -9,11 +9,11 @@ dependencies = [
     "minio>=7.2.20",
     "nats-py>=2.15.0",
     "ollama>=0.6.2",
-    "psycopg2[binary]>=2.9.12",
+    "psycopg[binary]>=3.3.4",
     "pydantic-settings>=2.14.1",
     "pyjwt[crypto]>=2.13.0",
     "pymilvus>=3.0.0",
-    "sqlalchemy>=2.0.50",
+    "sqlalchemy>=2.0.51",
 ]
 
 [tool.setuptools.packages.find]
