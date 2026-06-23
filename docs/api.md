@@ -1,40 +1,13 @@
-# docmesh-py-core API 가이드
+# docmesh-py-core API Reference
 
-이 문서는 `docmesh-py-core`의 **공개 API 레퍼런스**다.
+이 문서는 `docmesh-py-core`의 **공개 API 레퍼런스**입니다.
 
-이 문서의 범위:
+- 사용 흐름을 먼저 알고 싶다면 [README](../README.md)와 [SDK 가이드](./sdk.md)를 읽으세요.
+- 환경변수와 설정 규칙은 [설정 가이드](./config.md)를 참고하세요.
 
-- 패키지 루트에서 무엇을 import 하는가
-- 각 함수/클래스가 어떤 역할을 하는가
-- 어떤 값을 반환하는가
-- 어떤 예외가 발생할 수 있는가
+## 1. Public imports
 
-권장 사용 흐름, 서비스 통합 전략, FastAPI/CLI 예제 같은 **SDK 사용 가이드**는 [SDK 가이드](./sdk.md)를 먼저 참고한다.
-세부 환경변수 규칙은 [설정 가이드](./config.md), 테스트 전략은 [테스트 가이드](./test.md)를 참고한다.
-
----
-
-## 1. 이 문서를 보는 방법
-
-먼저 [SDK 가이드](./sdk.md)에서 아래 내용을 이해한 뒤, 필요할 때 이 문서로 돌아오는 것을 권장한다.
-
-- 표준 초기화 순서
-- 서비스 선택 패턴
-- PostgreSQL / SQLite / MinIO / NATS / Keycloak 통합 흐름
-- FastAPI / CLI 예제
-
-이 문서는 그 다음 단계에서 아래 질문에 답하기 위한 문서다.
-
-- `load_settings()`는 정확히 무엇을 반환하는가?
-- `ServiceFactoryRegistry.create_client()`는 서비스별로 무엇을 돌려주는가?
-- `check_all_services()`는 어떤 예외를 던지는가?
-- `KeycloakAuthService.fetch_access_token()`의 반환 타입은 무엇인가?
-
----
-
-## 2. 공개 API
-
-패키지 루트에서 바로 import 가능한 API:
+패키지 루트에서 바로 import 가능한 공개 API:
 
 ```python
 from docmesh_py_core import (
@@ -68,22 +41,17 @@ from docmesh_py_core import (
 )
 ```
 
-권장:
-
-- 일반 사용자는 `docmesh_py_core` 루트에서 import 한다.
-- 하위 모듈 직접 import는 특별한 이유가 있을 때만 사용한다.
-
----
-
-## 3. 설정 API
+## 2. Settings API
 
 ### `load_settings(env) -> Settings`
 
-역할:
+환경변수 매핑에서 전체 설정을 읽고 검증합니다.
 
-- 환경변수 매핑에서 전체 설정을 읽는다.
-- 서비스별 설정을 검증한다.
-- 검증 실패 시 `ConfigError`를 발생시킨다.
+주요 동작:
+
+- 서비스별 설정 객체 생성
+- 필수값/타입/범위 검증
+- 검증 실패 시 `ConfigError` 발생
 
 예시:
 
@@ -93,21 +61,13 @@ from docmesh_py_core import load_settings
 
 settings = load_settings(environ)
 print(settings.common.env)
-print(settings.keycloak.url)
 ```
-
-대표 예외:
-
-- `ConfigError`: 필수값 누락, 형식 오류, 상호배타 규칙 위반, 운영 보안 규칙 위반
 
 ### `Settings`
 
-역할:
+패키지의 최상위 설정 객체입니다.
 
-- 패키지의 최상위 설정 객체다.
-- 아래 서비스 설정을 묶어 제공한다.
-
-주요 필드:
+주요 하위 설정:
 
 - `settings.common`
 - `settings.keycloak`
@@ -119,21 +79,24 @@ print(settings.keycloak.url)
 - `settings.langfuse`
 - `settings.nats`
 
-참고:
+환경변수 계약은 [config.md](./config.md)를 참고하세요.
 
-- 환경변수 이름, 기본값, 조건부 필수 규칙은 `./config.md`를 참고한다.
+### `SqliteConfig`
 
----
+SQLite 전용 설정 객체입니다.
 
-## 4. 서비스 클라이언트 API
+대표 항목:
 
-### `ServiceFactoryRegistry`
+- 파일 경로 또는 `:memory:`
+- 읽기 전용 여부
+- WAL 활성화 여부
+- busy timeout
 
-정의:
+## 3. Client factory API
 
-```python
-registry = ServiceFactoryRegistry(settings)
-```
+### `ServiceFactoryRegistry(settings)`
+
+외부 서비스 클라이언트를 생성하는 진입점입니다.
 
 주요 메서드:
 
@@ -157,12 +120,11 @@ registry = ServiceFactoryRegistry(settings)
 ```python
 registry = ServiceFactoryRegistry(settings)
 postgres = registry.create_client("postgres")
-minio = registry.create_client("minio")
 postgres.check()
-minio.check()
+registry.close_all()
 ```
 
-반환 규칙:
+반환 타입:
 
 | 서비스 | 반환값 |
 | --- | --- |
@@ -177,34 +139,25 @@ minio.check()
 
 대표 예외:
 
-- `UnsupportedServiceError`: 지원하지 않는 서비스명을 요청한 경우
-- `ServiceClientWrapperError`: 공통 health check 호출이 표준화된 오류로 감싸진 경우
-
-주의:
-
-- `langfuse`는 비활성화 시 `None`일 수 있다.
-- `nats`는 연결된 client가 아니라 비동기 builder다.
-- 지원하지 않는 서비스명은 `UnsupportedServiceError`가 발생한다.
+- `UnsupportedServiceError`
+- `ServiceClientWrapperError`
+- `ServiceClientError`
 
 ### `ServiceClientWrapper`
 
-역할:
+공통 `check()` / `close()` 인터페이스를 제공하는 래퍼입니다.
 
-- 서비스별 SDK 위에 공통 `ping()` / `check()` / `close()` 인터페이스를 제공한다.
-- 원본 client 메서드는 그대로 위임한다.
-
-예시:
+일반적인 사용 예:
 
 ```python
-postgres = registry.create_client("postgres")
-postgres.check()
-postgres.connect()
-postgres.close()
+client = registry.create_client("sqlite")
+client.check()
+client.close()
 ```
 
 기본 `check()` 동작:
 
-| 서비스 | 동작 |
+| 서비스 | 기본 확인 |
 | --- | --- |
 | Keycloak | `fetch_access_token()` |
 | PostgreSQL | `SELECT 1` |
@@ -214,17 +167,12 @@ postgres.close()
 | Ollama | `ps()` |
 | Langfuse | `auth_check()` |
 
----
-
-## 5. NATS API
-
 ### `NatsConnectionBuilder`
 
-역할:
+NATS 연결용 비동기 builder입니다.
 
-- NATS 연결 인자를 보관한다.
-- `connect()` 호출 시 실제 연결을 만든다.
-- `check()`는 연결 후 `flush()`까지 수행한다.
+- `create_client("nats")`의 반환값
+- 실제 연결은 `await connect()` 또는 `await check()`로 수행
 
 예시:
 
@@ -232,45 +180,26 @@ postgres.close()
 import asyncio
 
 builder = registry.create_client("nats")
-
-async def main() -> None:
-    await builder.check()
-
-asyncio.run(main())
+asyncio.run(builder.check())
 ```
 
-주의:
-
-- `create_client("nats")` 결과는 동기 client가 아니다.
-- 반드시 `await builder.connect()` 또는 `await builder.check()`로 사용한다.
-
----
-
-## 6. 헬스체크 API
+## 4. Health API
 
 ### `check_all_services(service_checks, required_services=None, parallel=False)`
 
-역할:
+여러 서비스의 헬스체크를 집계 실행합니다.
 
-- 여러 서비스의 health check 함수를 한 번에 실행한다.
-- 서비스별 성공 여부, 지연 시간, 오류를 집계한다.
-- `parallel=True`이면 thread pool로 병렬 실행하면서 입력 순서를 유지한다.
-- 필수 서비스가 실패하면 `HealthCheckError`를 발생시킨다.
+반환 정보:
+
+- 전체 성공 여부
+- 서비스별 성공 여부
+- 서비스별 지연 시간
+- 마스킹된 오류 메시지
 
 예시:
 
 ```python
-from docmesh_py_core import check_all_services
-
 result = check_all_services(
-    {
-        "postgres": postgres.check,
-        "minio": minio.check,
-    },
-    required_services={"postgres"},
-)
-
-parallel_result = check_all_services(
     {
         "postgres": postgres.check,
         "minio": minio.check,
@@ -278,55 +207,35 @@ parallel_result = check_all_services(
     required_services={"postgres"},
     parallel=True,
 )
-
-print(result.ok)
-for item in result.services:
-    print(item.service, item.ok, item.latency_ms, item.error)
 ```
 
-관련 타입:
+대표 예외:
 
-- `HealthCheckResult.ok`: 전체 성공 여부
-- `HealthCheckResult.services`: 서비스별 상태 목록
-- `HealthCheckError.service`: 실패한 필수 서비스명
-- `HealthCheckError.error`: 마스킹된 오류 메시지
+- `HealthCheckError`: 필수 서비스 실패 시
 
----
+## 5. Keycloak API
 
-## 7. Keycloak API
+### `KeycloakAuthService(settings, allowed_algorithms=None)`
 
-### `KeycloakAuthService`
+Keycloak 인증 관련 고수준 진입점입니다.
 
-역할:
+제공 기능:
 
-- Keycloak access token 발급
-- JWT 검증 및 사용자 정보 추출
-
-생성 예시:
-
-```python
-from docmesh_py_core import KeycloakAuthService
-
-auth = KeycloakAuthService(settings, allowed_algorithms=["RS256"])
-```
+- Access Token 획득
+- JWT 검증
+- 사용자 정보 및 역할 추출
 
 ### `fetch_access_token(scope=None) -> AccessTokenResult`
 
-역할:
+Keycloak token endpoint에서 access token을 요청합니다.
 
-- Keycloak token endpoint에서 access token을 요청한다.
-- `client_credentials`, `password` grant를 지원한다.
+기본 특성:
 
-예시:
+- 기본 grant: `client_credentials`
+- 선택적 `scope` 전달 지원
+- 명시적 설정 시 `password` grant 사용 가능
 
-```python
-token = auth.fetch_access_token()
-print(token.access_token)
-print(token.token_type)
-print(token.expires_in)
-```
-
-반환값:
+반환 필드:
 
 - `access_token`
 - `token_type`
@@ -343,32 +252,22 @@ print(token.expires_in)
 
 ### `extract_user_info(token) -> AuthenticatedUser`
 
-역할:
+JWT를 검증한 뒤 표준 사용자 정보를 반환합니다.
 
-- JWT를 검증한 뒤 사용자 정보와 role을 추출한다.
-- `Bearer <token>` 형식도 허용한다.
+입력:
+
+- raw JWT 문자열
+- `Bearer <token>` 형식 문자열
 
 검증 항목:
 
-- 알고리즘
 - 서명
+- 만료 시간
 - issuer
-- expiry
-- audience(설정된 경우)
-- RS256 사용 시 JWKS 캐시 TTL 만료 후 재조회
-- RS256 검증 중 key rotation이 감지되면 JWKS 1회 강제 refresh
+- 선택적 audience
+- 허용 알고리즘
 
-예시:
-
-```python
-user = auth.extract_user_info(raw_jwt)
-print(user.sub)
-print(user.preferred_username)
-print(user.realm_roles)
-print(user.client_roles)
-```
-
-반환값:
+반환 필드:
 
 - `sub`
 - `preferred_username`
@@ -384,207 +283,71 @@ print(user.client_roles)
 
 - `TokenValidationError`
 
+### `AccessTokenResult`
+
+토큰 응답 객체입니다.
+
+대표 필드:
+
+- `access_token`
+- `token_type`
+- `expires_in`
+- `refresh_token`
+- `scope`
+
+### `AuthenticatedUser`
+
+검증된 토큰에서 추출한 사용자 정보 객체입니다.
+
+대표 필드:
+
+- `sub`
+- `preferred_username`
+- `email`
+- `name`
+- `realm_roles`
+- `client_roles`
+- `claims`
+
 ### `KeycloakProvisioner`
 
-역할:
+Keycloak Realm/Client/Role을 선언형으로 생성/갱신하는 프로비저너입니다.
 
-- realm, client, role 상태를 원하는 선언에 맞춘다.
-- 실제 Admin API 호출은 외부 `admin_client` 구현에 위임한다.
+주요 특징:
 
-기대 계약:
+- 멱등 실행
+- Dry-run 지원
+- 생성/갱신/변경 없음/실패 구분
+- 선언에서 제거된 리소스 자동 삭제 없음
 
-```python
-class KeycloakAdminClient(Protocol):
-    def ensure_realm(self, config) -> str: ...
-    def ensure_client(self, config) -> str: ...
-    def ensure_realm_role(self, realm: str, role_name: str) -> str: ...
-    def ensure_client_role(self, realm: str, client_id: str, role_name: str) -> str: ...
-```
-
-예시:
-
-```python
-provisioner = KeycloakProvisioner(settings, admin_client=my_admin_client)
-result = provisioner.provision()
-print(result.created, result.updated, result.failed)
-```
-
-반환값:
-
-- `created`
-- `updated`
-- `unchanged`
-- `failed`
-- `planned`
-- `dry_run`
-
----
-
-## 8. 보안 및 관측성 유틸리티
+## 6. Utility API
 
 ### `mask_sensitive_value(raw)`
 
-역할:
-
-- DSN, URL, query string, 일반 문자열에서 민감정보를 마스킹한다.
-- password, secret, token, api_key 계열 문자열을 숨긴다.
-
-예시:
-
-```python
-from docmesh_py_core import mask_sensitive_value
-
-print(mask_sensitive_value("password=hunter2"))
-print(mask_sensitive_value("token: abc123"))
-```
-
-사용 시점:
-
-- 로그 출력 전
-- 예외 메시지 노출 전
-- 운영 화면에 연결 정보나 오류를 보여주기 전
+비밀번호, 토큰, secret, DSN/URI의 민감값을 마스킹합니다.
 
 ### `build_service_log_event(...)`
 
-역할:
-
-- 서비스 연결/재시도/성공/실패 이벤트를 구조화된 dict로 만든다.
-- `error`와 민감해 보이는 추가 필드를 자동 마스킹한다.
-
-예시:
-
-```python
-from docmesh_py_core import build_service_log_event
-
-event = build_service_log_event(
-    service="keycloak",
-    operation="fetch_access_token",
-    outcome="temporary_error",
-    host="https://kc.example.com",
-    retry_count=1,
-    latency_ms=250,
-    error="token=abc123",
-)
-```
+서비스 연결/헬스체크/재시도 이벤트를 구조화된 dict로 생성합니다.
 
 ### `retry_call(operation, ..., retry_on, max_attempts)`
 
-역할:
-
-- 일시적 오류에 대해 동기 함수를 재시도한다.
-- 기본 지수 백오프는 `base_delay_seconds * 2**(attempt-1)` 패턴을 사용한다.
-- 재시도 대상이 아닌 예외는 즉시 다시 발생시킨다.
-
-예시:
-
-```python
-from docmesh_py_core import retry_call
-
-result = retry_call(
-    flaky_operation,
-    retry_on=(TemporaryError,),
-    max_attempts=3,
-)
-```
-
----
-
-## 9. 직렬화 / 페이지네이션 / 스냅샷 유틸리티
+일시적 오류에 대해 동기 함수를 재시도합니다.
 
 ### `to_serializable(value)`
 
-역할:
-
-- dataclass, Pydantic model, datetime/date, Path, set 등을 JSON-friendly 구조로 정규화한다.
-- 복합 중첩 구조에서도 재귀적으로 동작한다.
-
-### `Page.from_items(items, total, page, page_size)`
-
-역할:
-
-- 표준 페이지네이션 응답 모델을 만든다.
-- `total_pages`, `has_next`, `has_previous`를 함께 계산한다.
+dataclass, Pydantic model, datetime 등 복합 값을 JSON 친화 구조로 변환합니다.
 
 ### `build_settings_snapshot(settings)`
 
-역할:
+민감정보가 마스킹된 설정 스냅샷을 생성합니다.
 
-- `Settings` 또는 유사 설정 객체를 직렬화 가능한 dict snapshot으로 만든다.
-- secret/token/password/key 및 endpoint credential을 마스킹한 운영용 출력에 적합하다.
+### `Page`
 
----
+페이지네이션 표현용 공통 타입입니다.
 
-## 10. 자주 하는 실수
+## 7. Public API usage notes
 
-### `Settings()`를 바로 생성하는 것
-
-가능하지만 보통은 `load_settings()`를 권장한다.
-이유는 검증과 오류 메시지 정리가 함께 이뤄지기 때문이다.
-
-### `create_client("nats")` 결과를 바로 동기 client처럼 쓰는 것
-
-반환값은 연결된 client가 아니라 `NatsConnectionBuilder`다.
-반드시 `await builder.connect()` 또는 `await builder.check()`를 사용해야 한다.
-
-### `langfuse`가 항상 client를 반환한다고 가정하는 것
-
-`LANGFUSE_ENABLED=false`면 `create_client("langfuse")`는 `None`일 수 있다.
-
----
-
-## 10. 빠른 참조
-
-설정 로드:
-
-```python
-settings = load_settings(env)
-```
-
-registry 생성:
-
-```python
-registry = ServiceFactoryRegistry(settings)
-```
-
-서비스 client 생성:
-
-```python
-postgres = registry.create_client("postgres")
-```
-
-공통 health check:
-
-```python
-postgres.check()
-```
-
-서비스 집계 health check:
-
-```python
-result = check_all_services({"postgres": postgres.check})
-```
-
-Keycloak token 발급:
-
-```python
-token = KeycloakAuthService(settings).fetch_access_token()
-```
-
-JWT 검증:
-
-```python
-user = KeycloakAuthService(settings, allowed_algorithms=["RS256"]).extract_user_info(jwt)
-```
-
-민감정보 마스킹:
-
-```python
-safe = mask_sensitive_value(raw_message)
-```
-
----
-
-## 11. 관련 문서
-
-- [설정 가이드](./config.md)
-- [테스트 가이드](./test.md)
+- 일반 소비 코드는 패키지 루트 import를 권장합니다.
+- 서비스별 환경변수 활성화 규칙은 [config.md](./config.md)에서 확인하세요.
+- 워크플로우 중심 사용법은 [README](../README.md)와 [sdk.md](./sdk.md)를 먼저 읽는 것이 좋습니다.
