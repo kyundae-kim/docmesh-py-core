@@ -23,7 +23,6 @@ from .observability import build_service_log_event
 from .pagination import Page
 from .retry import retry_call
 from .security import mask_sensitive_value
-from .serialization import to_serializable
 
 __all__ = [
     "AccessTokenResult",
@@ -51,5 +50,4 @@ __all__ = [
     "load_settings",
     "mask_sensitive_value",
     "retry_call",
-    "to_serializable",
 ]

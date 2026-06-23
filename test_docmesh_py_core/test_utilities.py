@@ -1,61 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime
-
 import pytest
 
-from docmesh_py_core.config import load_settings
 from docmesh_py_core.pagination import Page
-from docmesh_py_core.serialization import to_serializable
 
 
 pytestmark = [pytest.mark.unit]
-
-
-@dataclass
-class _Item:
-    name: str
-    created_at: datetime
-
-
-def _settings():
-    return load_settings(
-        {
-            "KEYCLOAK_URL": "https://kc.example.com",
-            "KEYCLOAK_REALM": "docmesh",
-            "KEYCLOAK_CLIENT_ID": "backend",
-            "KEYCLOAK_CLIENT_SECRET": "client-secret",
-            "POSTGRES_DSN": "postgresql://user:secret-pass@db.example.com:5432/app?password=hunter2",
-            "MINIO_ENDPOINT": "minio.example.com:9000",
-            "MINIO_ACCESS_KEY": "minio-access",
-            "MINIO_SECRET_KEY": "minio-secret",
-            "MILVUS_URI": "http://milvus.example.com:19530",
-            "OLLAMA_HOST": "http://ollama.example.com:11434",
-            "LANGFUSE_ENABLED": "false",
-            "NATS_SERVERS": "nats://token-secret@n1:4222",
-        }
-    )
-
-
-def test_to_serializable_normalizes_dataclasses_datetimes_and_pydantic_models():
-    item = _Item(name="docmesh", created_at=datetime(2026, 6, 19, 12, 30, tzinfo=UTC))
-    settings = _settings()
-
-    serialized = to_serializable(
-        {
-            "item": item,
-            "settings": settings,
-            "tags": {"sdk", "core"},
-        }
-    )
-
-    assert serialized["item"] == {
-        "name": "docmesh",
-        "created_at": "2026-06-19T12:30:00+00:00",
-    }
-    assert serialized["settings"]["common"]["env"] == "development"
-    assert sorted(serialized["tags"]) == ["core", "sdk"]
 
 
 def test_page_builds_standard_pagination_metadata_and_items():
