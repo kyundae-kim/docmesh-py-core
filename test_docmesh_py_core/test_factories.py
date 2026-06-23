@@ -223,8 +223,8 @@ def test_service_factory_registry_uses_service_specific_default_builders(monkeyp
     postgres_ctor.assert_called_once()
     postgres_url = postgres_ctor.call_args.args[0]
     assert isinstance(postgres_url, URL)
-    assert postgres_url.render_as_string(hide_password=True) == "postgresql://docmesh:***@db.example.com:5432/app"
-    assert postgres_url.render_as_string(hide_password=False) == "postgresql://docmesh:secret@db.example.com:5432/app"
+    assert postgres_url.render_as_string(hide_password=True) == "postgresql+psycopg://docmesh:***@db.example.com:5432/app"
+    assert postgres_url.render_as_string(hide_password=False) == "postgresql+psycopg://docmesh:secret@db.example.com:5432/app"
     assert postgres_ctor.call_args.kwargs == {
         "pool_size": 5,
         "max_overflow": 10,

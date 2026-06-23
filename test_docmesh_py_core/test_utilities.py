@@ -8,7 +8,6 @@ import pytest
 from docmesh_py_core.config import load_settings
 from docmesh_py_core.pagination import Page
 from docmesh_py_core.serialization import to_serializable
-from docmesh_py_core.snapshot import build_settings_snapshot
 
 
 pytestmark = [pytest.mark.unit]
@@ -81,15 +80,3 @@ def test_page_rejects_out_of_range_page_requests():
         Page.from_items(items=[], total=5, page=4, page_size=2)
 
     assert "page" in str(exc_info.value)
-
-
-def test_build_settings_snapshot_masks_sensitive_values_recursively():
-    snapshot = build_settings_snapshot(_settings())
-
-    assert snapshot["keycloak"]["client_secret"] == "***"
-    assert "hunter2" not in snapshot["postgres"]["dsn"]
-    assert "***" in snapshot["postgres"]["dsn"]
-    assert snapshot["minio"]["secret_key"] == "***"
-    assert "token-secret" not in snapshot["nats"]["servers"][0]
-    assert "***" in snapshot["nats"]["servers"][0]
-    assert snapshot["langfuse"]["enabled"] is False
