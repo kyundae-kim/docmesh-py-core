@@ -177,7 +177,7 @@ def test_keycloak_auth_service_treats_server_errors_as_temporary():
 
 
 def test_keycloak_auth_service_extracts_standard_user_info_and_roles():
-    signing_key = "unit-test-signing-key"
+    signing_key = "unit-test-signing-key-32-bytes-min"
     now = datetime.now(UTC)
     token = _encode_hs256_jwt(
         {
@@ -219,8 +219,8 @@ def test_keycloak_auth_service_extracts_standard_user_info_and_roles():
     assert user.claims["sub"] == "user-123"
 
 
-def test_keycloak_auth_service_rejects_expired_or_invalid_audience_tokens():
-    signing_key = "unit-test-signing-key"
+def test_keycloak_auth_service_rejects_expired_not_yet_valid_or_invalid_audience_tokens():
+    signing_key = "unit-test-signing-key-32-bytes-min"
     now = datetime.now(UTC)
     expired = _encode_hs256_jwt(
         {
@@ -228,6 +228,16 @@ def test_keycloak_auth_service_rejects_expired_or_invalid_audience_tokens():
             "iss": "https://kc.example.com/realms/docmesh",
             "aud": "docmesh-api",
             "exp": int((now - timedelta(minutes=1)).timestamp()),
+        },
+        signing_key,
+    )
+    not_yet_valid = _encode_hs256_jwt(
+        {
+            "sub": "user-123",
+            "iss": "https://kc.example.com/realms/docmesh",
+            "aud": "docmesh-api",
+            "exp": int((now + timedelta(minutes=5)).timestamp()),
+            "nbf": int((now + timedelta(minutes=1)).timestamp()),
         },
         signing_key,
     )
@@ -249,6 +259,9 @@ def test_keycloak_auth_service_rejects_expired_or_invalid_audience_tokens():
 
     with pytest.raises(TokenValidationError):
         auth.extract_user_info(expired)
+
+    with pytest.raises(TokenValidationError):
+        auth.extract_user_info(not_yet_valid)
 
     with pytest.raises(TokenValidationError):
         auth.extract_user_info(wrong_audience)
@@ -295,7 +308,7 @@ def test_keycloak_auth_service_refreshes_jwks_after_cache_ttl_expires():
     )
     http_client = Mock()
     http_client.get.return_value = {"status_code": 200, "json": jwks}
-    current_time = Mock(side_effect=[100.0, 100.0, 106.0, 106.0, 106.0])
+    current_time = Mock(side_effect=[100.0, 106.0, 106.0])
 
     auth = KeycloakAuthService(
         _settings(audience="docmesh-api"),

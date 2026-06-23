@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
+import logging
 import ssl
 import time
 from dataclasses import dataclass, field
-import logging
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+import jwt
+from jwt import algorithms
+from jwt.exceptions import InvalidAlgorithmError, InvalidAudienceError, InvalidIssuerError, InvalidTokenError, MissingRequiredClaimError
 
 from .config import Settings
 from .observability import build_service_log_event
@@ -298,12 +299,7 @@ class KeycloakAuthService:
 
     def extract_user_info(self, token: str) -> AuthenticatedUser:
         raw_token = _strip_bearer_prefix(token)
-        header, claims, signature, signing_input = _split_jwt(raw_token)
-        algorithm = header.get("alg")
-        if algorithm not in self.allowed_algorithms:
-            raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
-        self._verify_signature(header, signing_input, signature)
-        self._validate_registered_claims(claims)
+        claims = self._decode_and_validate_jwt(raw_token)
 
         subject = claims.get("sub") or claims.get("jti")
         if not subject:
@@ -344,30 +340,64 @@ class KeycloakAuthService:
     def jwks_endpoint(self) -> str:
         return f"{self.issuer}/protocol/openid-connect/certs"
 
-    def _verify_signature(self, header: dict[str, Any], signing_input: bytes, signature: bytes) -> None:
+    def _decode_and_validate_jwt(self, token: str) -> dict[str, Any]:
+        try:
+            header = jwt.get_unverified_header(token)
+        except InvalidTokenError as exc:
+            raise TokenValidationError("JWT is malformed") from exc
+
+        algorithm = header.get("alg")
+        if algorithm not in self.allowed_algorithms:
+            raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
+
+        key = self._resolve_verification_key(header)
+        decode_kwargs = self._build_decode_kwargs()
+        try:
+            claims = jwt.decode(token, key=key, algorithms=[algorithm], **decode_kwargs)
+        except InvalidAudienceError as exc:
+            raise TokenValidationError("JWT audience validation failed") from exc
+        except InvalidIssuerError as exc:
+            raise TokenValidationError("JWT issuer validation failed") from exc
+        except MissingRequiredClaimError as exc:
+            if exc.claim == "exp":
+                raise TokenValidationError("JWT expiration claim is required") from exc
+            raise TokenValidationError(f"JWT missing required claim: {exc.claim}") from exc
+        except InvalidAlgorithmError as exc:
+            raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}") from exc
+        except InvalidTokenError as exc:
+            detail = str(exc)
+            if detail == "Signature verification failed":
+                if algorithm == "RS256" and self._jwks_cache is not None:
+                    refreshed_key = self._refresh_verification_key(header)
+                    if refreshed_key is not None:
+                        try:
+                            claims = jwt.decode(token, key=refreshed_key, algorithms=[algorithm], **decode_kwargs)
+                        except InvalidTokenError as retry_exc:
+                            raise self._map_invalid_token_error(retry_exc) from retry_exc
+                    else:
+                        raise TokenValidationError("JWT signature validation failed") from exc
+                else:
+                    raise TokenValidationError("JWT signature validation failed") from exc
+            else:
+                raise self._map_invalid_token_error(exc) from exc
+
+        if not isinstance(claims, dict):
+            raise TokenValidationError("JWT is malformed")
+        return claims
+
+    def _resolve_verification_key(self, header: dict[str, Any]) -> Any:
         algorithm = header.get("alg")
         if algorithm == "HS256":
             if self.verification_key is None:
                 raise TokenValidationError("Verification key is required for HS256 token validation")
-            expected = hmac.new(
-                self.verification_key.encode("utf-8"),
-                signing_input,
-                hashlib.sha256,
-            ).digest()
-            if not hmac.compare_digest(expected, signature):
-                raise TokenValidationError("JWT signature validation failed")
-            return
+            return self.verification_key
         if algorithm == "RS256":
-            jwk = self._select_jwk(header)
-            try:
-                _verify_rs256_signature(signing_input, signature, jwk)
-            except TokenValidationError as exc:
-                refreshed_jwk = self._refresh_jwk_for_header(header)
-                if refreshed_jwk is None:
-                    raise
-                _verify_rs256_signature(signing_input, signature, refreshed_jwk)
-            return
+            return self._select_rs256_verification_key(header)
         raise TokenValidationError(f"Unsupported JWT algorithm: {algorithm}")
+
+    def _select_rs256_verification_key(self, header: dict[str, Any]) -> Any:
+        jwk = self._select_jwk(header)
+        return self._build_public_key_from_jwk(jwk)
 
     def _select_jwk(self, header: dict[str, Any]) -> dict[str, Any]:
         kid = header.get("kid")
@@ -398,6 +428,12 @@ class KeycloakAuthService:
         self._jwks_cache_loaded_at = self.current_time()
         return body
 
+    def _refresh_verification_key(self, header: dict[str, Any]) -> Any | None:
+        refreshed_jwk = self._refresh_jwk_for_header(header)
+        if refreshed_jwk is None:
+            return None
+        return self._build_public_key_from_jwk(refreshed_jwk)
+
     def _refresh_jwk_for_header(self, header: dict[str, Any]) -> dict[str, Any] | None:
         kid = header.get("kid")
         if not kid:
@@ -415,6 +451,43 @@ class KeycloakAuthService:
             if isinstance(candidate, dict) and candidate.get("kid") == kid:
                 return candidate
         raise TokenValidationError(f"No JWKS key found for kid: {kid}")
+
+    def _build_public_key_from_jwk(self, jwk: dict[str, Any]) -> Any:
+        try:
+            return algorithms.RSAAlgorithm.from_jwk(json.dumps(jwk))
+        except Exception as exc:
+            raise TokenValidationError("JWKS RSA key is invalid") from exc
+
+    def _build_decode_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {
+            "issuer": self.issuer,
+            "options": {"require": ["exp"]},
+        }
+        expected_audience = self.settings.keycloak.audience
+        if expected_audience:
+            kwargs["audience"] = expected_audience
+        else:
+            kwargs["options"]["verify_aud"] = False
+        return kwargs
+
+    def _map_invalid_token_error(self, exc: InvalidTokenError) -> TokenValidationError:
+        detail = str(exc)
+        if detail == "Signature verification failed":
+            return TokenValidationError("JWT signature validation failed")
+        if detail == "Not enough segments":
+            return TokenValidationError("JWT must contain header, payload, and signature")
+        if detail == "Token is missing the \"exp\" claim":
+            return TokenValidationError("JWT expiration claim is required")
+        if detail.startswith("Token is missing the "):
+            missing_claim = detail.removeprefix("Token is missing the \"").removesuffix("\" claim")
+            return TokenValidationError(f"JWT missing required claim: {missing_claim}")
+        if detail == "The token is not yet valid (nbf)":
+            return TokenValidationError("JWT is not yet valid")
+        if detail == "The token is not yet valid (iat)":
+            return TokenValidationError("JWT issued-at claim is invalid")
+        if detail == "Signature has expired":
+            return TokenValidationError("JWT has expired")
+        return TokenValidationError(detail or "JWT is malformed")
 
     def _parse_token_response(self, response: dict[str, Any]) -> AccessTokenResult:
         status_code = int(response.get("status_code", 0))
@@ -458,34 +531,6 @@ class KeycloakAuthService:
     def _default_event_logger(self, event: dict[str, Any]) -> None:
         self.logger.info("service_event", extra={"service_event": event})
 
-    def _validate_registered_claims(self, claims: dict[str, Any]) -> None:
-        issuer = claims.get("iss")
-        if issuer != self.issuer:
-            raise TokenValidationError("JWT issuer validation failed")
-
-        exp = claims.get("exp")
-        if exp is None:
-            raise TokenValidationError("JWT expiration claim is required")
-        try:
-            expires_at = float(exp)
-        except (TypeError, ValueError) as exc:
-            raise TokenValidationError("JWT expiration claim is invalid") from exc
-        if expires_at <= self.current_time():
-            raise TokenValidationError("JWT has expired")
-
-        expected_audience = self.settings.keycloak.audience
-        if expected_audience:
-            audience = claims.get("aud")
-            if isinstance(audience, str):
-                audiences = [audience]
-            elif isinstance(audience, list):
-                audiences = [str(item) for item in audience]
-            else:
-                audiences = []
-            if expected_audience not in audiences:
-                raise TokenValidationError("JWT audience validation failed")
-
-
 def _strip_bearer_prefix(token: str) -> str:
     stripped = token.strip()
     if stripped.lower().startswith("bearer "):
@@ -503,69 +548,10 @@ def _build_ssl_context(url: str, verify_ssl: bool) -> ssl.SSLContext | None:
     return context
 
 
-def _split_jwt(token: str) -> tuple[dict[str, Any], dict[str, Any], bytes, bytes]:
-    parts = token.split(".")
-    if len(parts) != 3:
-        raise TokenValidationError("JWT must contain header, payload, and signature")
-    header_segment, payload_segment, signature_segment = parts
-    signing_input = f"{header_segment}.{payload_segment}".encode("ascii")
-    try:
-        header = json.loads(_b64url_decode(header_segment))
-        claims = json.loads(_b64url_decode(payload_segment))
-        signature = _b64url_decode_bytes(signature_segment)
-    except Exception as exc:
-        raise TokenValidationError("JWT is malformed") from exc
-    if not isinstance(header, dict) or not isinstance(claims, dict):
-        raise TokenValidationError("JWT is malformed")
-    return header, claims, signature, signing_input
-
-
-def _b64url_decode(segment: str) -> str:
-    return _b64url_decode_bytes(segment).decode("utf-8")
-
-
-def _b64url_decode_bytes(segment: str) -> bytes:
-    padding = "=" * (-len(segment) % 4)
-    return base64.urlsafe_b64decode(f"{segment}{padding}")
-
-
 def _normalize_roles(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value]
-
-
-def _verify_rs256_signature(signing_input: bytes, signature: bytes, jwk: dict[str, Any]) -> None:
-    if jwk.get("kty") != "RSA":
-        raise TokenValidationError("JWKS key type must be RSA for RS256 validation")
-    modulus_encoded = jwk.get("n")
-    exponent_encoded = jwk.get("e")
-    if not isinstance(modulus_encoded, str) or not isinstance(exponent_encoded, str):
-        raise TokenValidationError("JWKS RSA key is missing modulus or exponent")
-
-    modulus = int.from_bytes(_b64url_decode_bytes(modulus_encoded), "big")
-    exponent = int.from_bytes(_b64url_decode_bytes(exponent_encoded), "big")
-    if modulus <= 0 or exponent <= 0:
-        raise TokenValidationError("JWKS RSA key is invalid")
-
-    signature_int = int.from_bytes(signature, "big")
-    expected_length = (modulus.bit_length() + 7) // 8
-    decrypted = pow(signature_int, exponent, modulus).to_bytes(expected_length, "big")
-    digest = hashlib.sha256(signing_input).digest()
-    expected_digest_info = bytes.fromhex("3031300d060960864801650304020105000420") + digest
-
-    if len(decrypted) < len(expected_digest_info) + 11:
-        raise TokenValidationError("JWT signature validation failed")
-    if not decrypted.startswith(b"\x00\x01"):
-        raise TokenValidationError("JWT signature validation failed")
-    separator_index = decrypted.find(b"\x00", 2)
-    if separator_index < 10:
-        raise TokenValidationError("JWT signature validation failed")
-    padding = decrypted[2:separator_index]
-    if any(byte != 0xFF for byte in padding):
-        raise TokenValidationError("JWT signature validation failed")
-    if decrypted[separator_index + 1 :] != expected_digest_info:
-        raise TokenValidationError("JWT signature validation failed")
 
 
 def _optional_str(value: Any) -> str | None:

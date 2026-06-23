@@ -98,7 +98,6 @@ def test_non_integration_test_modules_declare_documented_pytest_slices():
         'test_health.py': 'pytestmark = [pytest.mark.unit, pytest.mark.health]',
         'test_keycloak.py': 'pytestmark = [pytest.mark.unit, pytest.mark.keycloak]',
         'test_observability.py': 'pytestmark = [pytest.mark.unit]',
-        'test_utilities.py': 'pytestmark = [pytest.mark.unit]',
         'test_keycloak_provisioning.py': 'pytestmark = [pytest.mark.unit, pytest.mark.keycloak]',
         'test_project_contract.py': 'pytestmark = [pytest.mark.unit]',
         'test_security.py': 'pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.keycloak]',
