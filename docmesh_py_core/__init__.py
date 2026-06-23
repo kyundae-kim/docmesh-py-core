@@ -20,7 +20,6 @@ from .keycloak import (
     TokenValidationError,
 )
 from .observability import build_service_log_event
-from .pagination import Page
 from .retry import retry_call
 from .security import mask_sensitive_value
 
@@ -36,7 +35,6 @@ __all__ = [
     "KeycloakTokenError",
     "KeycloakTokenTemporaryError",
     "NatsConnectionBuilder",
-    "Page",
     "ServiceClientError",
     "ServiceClientWrapper",
     "ServiceClientWrapperError",
