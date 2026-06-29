@@ -24,12 +24,20 @@
 | --- | --- | --- | --- |
 | `DOCMESH_ENV` | 아니요 | `development` | 실행 환경 식별자 |
 | `DOCMESH_HEALTHCHECK_ENABLED` | 아니요 | `true` | 헬스체크 활성화 여부 |
+| `DOCMESH_LOG_LEVEL` | 아니요 | `INFO` | 공용 `configure_logging()` 기본 로그 레벨 |
 
 권장값 예시:
 
 - 로컬 개발: `DOCMESH_ENV=development`
 - 통합 테스트: `DOCMESH_ENV=integration`
 - 운영: `DOCMESH_ENV=production`
+
+로깅 규칙:
+
+- `configure_logging(level=...)`를 명시하지 않으면 `DOCMESH_LOG_LEVEL`을 읽습니다.
+- `DOCMESH_LOG_LEVEL`이 없으면 기본값은 `INFO`입니다.
+- 예: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+- 잘못된 값이면 `ValueError`가 발생합니다.
 
 ## 3. 서비스별 설정
 

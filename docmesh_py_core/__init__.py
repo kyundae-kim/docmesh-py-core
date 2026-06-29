@@ -7,6 +7,7 @@ from .factories import (
     ServiceFactoryRegistry,
     UnsupportedServiceError,
 )
+from .function_logging import configure_logging
 from .health import HealthCheckError, check_all_services
 from .keycloak import (
     AccessTokenResult,
@@ -27,6 +28,7 @@ __all__ = [
     "AccessTokenResult",
     "AuthenticatedUser",
     "ConfigError",
+    "configure_logging",
     "HealthCheckError",
     "KeycloakAuthService",
     "KeycloakProvisioner",

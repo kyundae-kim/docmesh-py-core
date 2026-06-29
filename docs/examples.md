@@ -335,7 +335,31 @@ print(result)
 - 재시도 간격은 지수 백오프
 - 영구 오류는 `retry_on`에 넣지 않는 것이 원칙
 
-## 10. 예시 선택 가이드
+## 10. 공용 로깅 초기화 예시
+
+```python
+from os import environ
+
+from docmesh_py_core import configure_logging
+
+configure_logging(log_path="logs/app.log", force=True, env=environ)
+```
+
+환경변수로 로그 레벨 제어:
+
+```bash
+DOCMESH_LOG_LEVEL=DEBUG uv run python sss.py
+DOCMESH_LOG_LEVEL=ERROR uv run python sss.py
+```
+
+포인트:
+
+- `level=` 인자를 생략하면 `DOCMESH_LOG_LEVEL`을 읽습니다.
+- `DOCMESH_LOG_LEVEL`이 없으면 기본값은 `INFO`입니다.
+- `log_path`를 주면 stderr와 파일에 함께 기록합니다.
+- 함수 경계 로그에는 `function_event`가 포함됩니다.
+
+## 11. 예시 선택 가이드
 
 - 웹 API 서버 시작/종료 → **FastAPI startup / shutdown 예시**
 - readiness/liveness 구성 → **Health endpoint 예시**

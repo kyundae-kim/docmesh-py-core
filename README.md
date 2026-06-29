@@ -135,6 +135,7 @@ from docmesh_py_core import (
     AccessTokenResult,
     AuthenticatedUser,
     ConfigError,
+    configure_logging,
     HealthCheckError,
     KeycloakAuthService,
     KeycloakProvisioner,
@@ -169,6 +170,12 @@ from docmesh_py_core import (
 - 민감정보는 로그와 예외 메시지에서 마스킹해야 합니다.
 - 운영 환경에서는 TLS 검증을 기본으로 유지해야 합니다.
 - 서비스별 timeout/retry는 각 서비스 환경변수로 관리합니다.
+
+로깅:
+
+- 공용 로깅 초기화는 `configure_logging()`을 사용합니다.
+- `level`을 명시하지 않으면 `DOCMESH_LOG_LEVEL`을 읽습니다.
+- 지정이 없으면 기본값은 `INFO`입니다.
 
 자세한 환경변수 목록은 [docs/config.md](docs/config.md)를 참고하세요.
 
