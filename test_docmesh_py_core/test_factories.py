@@ -149,6 +149,20 @@ def test_service_factory_registry_can_create_selected_clients_only():
     postgres_builder.assert_not_called()
 
 
+def test_service_factory_registry_exposes_only_services_loaded_into_settings():
+    settings = load_settings(
+        {
+            "NATS_SERVERS": "nats://n1:4222",
+        },
+        services={"nats"},
+    )
+    registry = ServiceFactoryRegistry(settings)
+
+    assert isinstance(registry.create_client("nats"), NatsConnectionBuilder)
+    with pytest.raises(UnsupportedServiceError):
+        registry.create_client("keycloak")
+
+
 def test_service_factory_registry_creates_sqlite_wrapper_and_healthcheck(monkeypatch):
     fake_sqlite_client = Mock(name="sqlite-engine")
     connection = Mock()

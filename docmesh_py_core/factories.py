@@ -130,7 +130,19 @@ class ServiceFactoryRegistry:
 
     @log_function_boundary()
     def __post_init__(self) -> None:
-        self._builders = {'keycloak': (self.keycloak_builder or self._build_keycloak_client, self.settings.keycloak), 'minio': (self.minio_builder or self._build_minio_client, self.settings.minio), 'milvus': (self.milvus_builder or self._build_milvus_client, self.settings.milvus), 'ollama': (self.ollama_builder or self._build_ollama_client, self.settings.ollama), 'langfuse': (self.langfuse_builder or self._build_langfuse_client, self.settings.langfuse), 'nats': (self.nats_builder or self._build_nats_client, self.settings.nats)}
+        self._builders: dict[str, tuple[Builder, Any]] = {}
+        if self.settings.keycloak is not None:
+            self._builders['keycloak'] = (self.keycloak_builder or self._build_keycloak_client, self.settings.keycloak)
+        if self.settings.minio is not None:
+            self._builders['minio'] = (self.minio_builder or self._build_minio_client, self.settings.minio)
+        if self.settings.milvus is not None:
+            self._builders['milvus'] = (self.milvus_builder or self._build_milvus_client, self.settings.milvus)
+        if self.settings.ollama is not None:
+            self._builders['ollama'] = (self.ollama_builder or self._build_ollama_client, self.settings.ollama)
+        if self.settings.langfuse is not None:
+            self._builders['langfuse'] = (self.langfuse_builder or self._build_langfuse_client, self.settings.langfuse)
+        if self.settings.nats is not None:
+            self._builders['nats'] = (self.nats_builder or self._build_nats_client, self.settings.nats)
         if self.settings.postgres is not None:
             self._builders['postgres'] = (self.postgres_builder or self._build_postgres_client, self.settings.postgres)
         if self.settings.sqlite is not None:

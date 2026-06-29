@@ -65,7 +65,38 @@ app = FastAPI(lifespan=lifespan)
 - `ServiceFactoryRegistry`는 앱 수명주기 동안 재사용
 - 종료 시 `close_all()` 호출
 
-## 3. Health endpoint 구성 예시
+## 3. 필요한 서비스만 선택 로딩하는 예시
+
+```python
+from os import environ
+
+from docmesh_py_core import ServiceFactoryRegistry, load_settings
+
+settings = load_settings(
+    environ,
+    services={"sqlite", "langfuse"},
+)
+registry = ServiceFactoryRegistry(settings)
+
+sqlite = registry.create_client("sqlite")
+sqlite.check()
+
+langfuse = registry.create_client("langfuse")
+if langfuse is not None:
+    langfuse.check()
+
+assert settings.keycloak is None
+assert settings.minio is None
+assert settings.nats is None
+```
+
+포인트:
+
+- 공용 라이브러리를 부분 기능만 쓸 때 불필요한 서비스 env 검증을 피할 수 있습니다.
+- 선택되지 않은 서비스는 `Settings`에서 `None`입니다.
+- `ServiceFactoryRegistry`는 로드되지 않은 서비스명에 대해 클라이언트를 만들지 않습니다.
+
+## 4. Health endpoint 구성 예시
 
 ```python
 from fastapi import APIRouter, Request
@@ -119,7 +150,7 @@ def health(request: Request):
 - `parallel=True`면 독립 서비스 health check를 병렬 수행
 - 오류 메시지는 내부적으로 민감정보 마스킹 적용
 
-## 4. SQLite 로컬 개발 예시
+## 5. SQLite 로컬 개발 예시
 
 환경변수 예:
 
@@ -165,7 +196,7 @@ registry.close_all()
 - 상대경로는 앱 작업 디렉터리 기준
 - 로컬 개발에서는 `LANGFUSE_ENABLED=false`로 선택 기능을 꺼둘 수 있음
 
-## 5. Keycloak access token 획득 예시
+## 6. Keycloak access token 획득 예시
 
 ### client credentials grant
 
@@ -206,7 +237,7 @@ token = auth.fetch_access_token(
 print(token.access_token)
 ```
 
-## 6. Keycloak JWT 검증 예시 (RS256)
+## 7. Keycloak JWT 검증 예시 (RS256)
 
 Keycloak 기본 배포는 RS256 토큰을 자주 사용하므로, 검증 시 허용 알고리즘을 명시하는 것이 안전합니다.
 
@@ -235,7 +266,7 @@ else:
 - RS256 검증 시 JWKS를 자동 조회/캐시
 - audience 검증이 필요하면 `KEYCLOAK_AUDIENCE` 설정
 
-## 7. Langfuse optional 분기 예시
+## 8. Langfuse optional 분기 예시
 
 ```python
 from os import environ
@@ -257,7 +288,7 @@ else:
 - `LANGFUSE_ENABLED=false`면 `create_client("langfuse")` 결과가 `None`
 - 소비 애플리케이션은 optional dependency처럼 다루는 것이 좋음
 
-## 8. NATS async 연결 예시
+## 9. NATS async 연결 예시
 
 ```python
 import asyncio
@@ -301,7 +332,7 @@ asyncio.run(main())
 - `check()`는 연결 후 `flush()` 확인 뒤 정리
 - 지속 연결은 `connect()` 반환값을 애플리케이션이 직접 수명 관리해야 함
 
-## 9. 재시도 유틸리티 예시
+## 10. 재시도 유틸리티 예시
 
 ```python
 from docmesh_py_core import retry_call
@@ -335,7 +366,7 @@ print(result)
 - 재시도 간격은 지수 백오프
 - 영구 오류는 `retry_on`에 넣지 않는 것이 원칙
 
-## 10. 공용 로깅 초기화 예시
+## 11. 공용 로깅 초기화 예시
 
 ```python
 from os import environ
@@ -359,7 +390,7 @@ DOCMESH_LOG_LEVEL=ERROR uv run python sss.py
 - `log_path`를 주면 stderr와 파일에 함께 기록합니다.
 - 함수 경계 로그에는 `function_event`가 포함됩니다.
 
-## 11. 예시 선택 가이드
+## 12. 예시 선택 가이드
 
 - 웹 API 서버 시작/종료 → **FastAPI startup / shutdown 예시**
 - readiness/liveness 구성 → **Health endpoint 예시**
@@ -368,7 +399,7 @@ DOCMESH_LOG_LEVEL=ERROR uv run python sss.py
 - 선택형 observability → **Langfuse optional 예시**
 - 비동기 메시징 → **NATS async 예시**
 
-## 11. 관련 문서
+## 13. 관련 문서
 
 - API 세부 계약: [api.md](./api.md)
 - 환경변수/활성화 규칙: [config.md](./config.md)

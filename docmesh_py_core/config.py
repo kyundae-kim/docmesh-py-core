@@ -9,6 +9,7 @@ class ConfigError(ValueError):
     pass
 CsvList = Annotated[list[str], NoDecode]
 SettingsT = TypeVar('SettingsT', bound='DocmeshBaseSettings')
+SUPPORTED_SERVICES = frozenset({'keycloak', 'postgres', 'sqlite', 'minio', 'milvus', 'ollama', 'langfuse', 'nats'})
 
 class DocmeshBaseSettings(BaseSettings):
     model_config = SettingsConfigDict(extra='ignore', case_sensitive=False)
@@ -310,22 +311,32 @@ class NatsConfig(DocmeshBaseSettings):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(extra='ignore', case_sensitive=False)
     common: CommonConfig = Field(default_factory=lambda: CommonConfig())
-    keycloak: KeycloakConfig = Field(default_factory=lambda: KeycloakConfig())
+    keycloak: KeycloakConfig | None = Field(default_factory=lambda: KeycloakConfig())
     postgres: PostgresConfig | None = Field(default_factory=lambda: _default_optional_settings(PostgresConfig))
     sqlite: SqliteConfig | None = Field(default_factory=lambda: _default_optional_settings(SqliteConfig))
-    minio: MinioConfig = Field(default_factory=lambda: MinioConfig())
-    milvus: MilvusConfig = Field(default_factory=lambda: MilvusConfig())
-    ollama: OllamaConfig = Field(default_factory=lambda: OllamaConfig())
-    langfuse: LangfuseConfig = Field(default_factory=lambda: LangfuseConfig())
-    nats: NatsConfig = Field(default_factory=lambda: NatsConfig())
+    minio: MinioConfig | None = Field(default_factory=lambda: MinioConfig())
+    milvus: MilvusConfig | None = Field(default_factory=lambda: MilvusConfig())
+    ollama: OllamaConfig | None = Field(default_factory=lambda: OllamaConfig())
+    langfuse: LangfuseConfig | None = Field(default_factory=lambda: LangfuseConfig())
+    nats: NatsConfig | None = Field(default_factory=lambda: NatsConfig())
 
     @model_validator(mode='after')
     @log_function_boundary()
     def apply_cross_service_defaults(self) -> 'Settings':
-        if self.langfuse.environment is None:
+        if self.langfuse is not None and self.langfuse.environment is None:
             self.langfuse.environment = self.common.env
         _validate_security(self)
         return self
+
+@log_function_boundary()
+def _normalize_requested_services(services: set[str] | None) -> set[str]:
+    if services is None:
+        return set(SUPPORTED_SERVICES)
+    normalized = {service.lower() for service in services}
+    unknown = sorted(normalized.difference(SUPPORTED_SERVICES))
+    if unknown:
+        raise ConfigError(f'Unsupported services requested: {", ".join(unknown)}')
+    return normalized
 
 @log_function_boundary()
 def _settings_kwargs_from_env(settings_cls: type[SettingsT], env: Mapping[str, str]) -> dict[str, Any]:
@@ -383,15 +394,16 @@ def _default_optional_settings(settings_cls: type[SettingsT]) -> SettingsT | Non
 def _validate_security(settings: Settings) -> None:
     if settings.common.env.lower() not in {'production', 'prod'}:
         return
-    if not settings.keycloak.verify_ssl or not settings.minio.secure or (not settings.milvus.secure):
+    if ((settings.keycloak is not None and (not settings.keycloak.verify_ssl)) or (settings.minio is not None and (not settings.minio.secure)) or (settings.milvus is not None and (not settings.milvus.secure))):
         raise ConfigError('SSL verification cannot be disabled in production')
 
 @log_function_boundary()
-def load_settings(env: Mapping[str, str]) -> Settings:
+def load_settings(env: Mapping[str, str], *, services: set[str] | None=None) -> Settings:
     common = _build_settings(CommonConfig, env)
+    selected_services = _normalize_requested_services(services)
     langfuse_env = dict(env)
     langfuse_env.setdefault('LANGFUSE_ENVIRONMENT', common.env)
     try:
-        return Settings(common=common, keycloak=_build_settings(KeycloakConfig, env), postgres=_build_optional_settings(PostgresConfig, env), sqlite=_build_optional_settings(SqliteConfig, env), minio=_build_settings(MinioConfig, env), milvus=_build_settings(MilvusConfig, env), ollama=_build_settings(OllamaConfig, env), langfuse=_build_settings(LangfuseConfig, langfuse_env), nats=_build_settings(NatsConfig, env))
+        return Settings(common=common, keycloak=(_build_settings(KeycloakConfig, env) if 'keycloak' in selected_services else None), postgres=(_build_optional_settings(PostgresConfig, env) if 'postgres' in selected_services else None), sqlite=(_build_optional_settings(SqliteConfig, env) if 'sqlite' in selected_services else None), minio=(_build_settings(MinioConfig, env) if 'minio' in selected_services else None), milvus=(_build_settings(MilvusConfig, env) if 'milvus' in selected_services else None), ollama=(_build_settings(OllamaConfig, env) if 'ollama' in selected_services else None), langfuse=(_build_settings(LangfuseConfig, langfuse_env) if 'langfuse' in selected_services else None), nats=(_build_settings(NatsConfig, env) if 'nats' in selected_services else None))
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc

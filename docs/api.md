@@ -60,21 +60,22 @@ from docmesh_py_core import (
 
 ## 2. Settings API
 
-### `load_settings(env) -> Settings`
+### `load_settings(env, *, services=None) -> Settings`
 
-환경변수 매핑에서 전체 설정을 읽고 검증합니다.
+환경변수 매핑에서 설정을 읽고 검증합니다.
 
 주요 동작:
 
-- 서비스별 설정 객체 생성
-- 필수값/타입/범위 검증
-- 선택적 설정(`postgres`, `sqlite`)은 관련 env가 없으면 `None`
-- 검증 실패 시 `ConfigError` 발생
-- `LANGFUSE_ENVIRONMENT`가 비어 있으면 `DOCMESH_ENV` 값을 상속
+- `services=None`이면 지원 서비스 전체를 검증합니다.
+- `services={...}`를 주면 지정한 서비스만 검증하고, 나머지 필드는 `None`으로 둡니다.
+- 선택적 설정(`postgres`, `sqlite`)은 선택된 상태에서도 관련 env가 없으면 `None`입니다.
+- 검증 실패 시 `ConfigError`가 발생합니다.
+- `LANGFUSE_ENVIRONMENT`가 비어 있으면 `DOCMESH_ENV` 값을 상속합니다.
 
 입력:
 
 - `env`: `Mapping[str, str]` 형태의 환경변수 집합
+- `services`: 선택적으로 로드할 서비스명 집합 (`keycloak`, `postgres`, `sqlite`, `minio`, `milvus`, `ollama`, `langfuse`, `nats`)
 
 대표 예외:
 
@@ -88,6 +89,26 @@ from docmesh_py_core import load_settings
 
 settings = load_settings(environ)
 print(settings.common.env)
+```
+
+partial loading 예시:
+
+```python
+from os import environ
+
+from docmesh_py_core import ServiceFactoryRegistry, load_settings
+
+settings = load_settings(
+    environ,
+    services={"sqlite", "nats"},
+)
+registry = ServiceFactoryRegistry(settings)
+
+sqlite = registry.create_client("sqlite")
+builder = registry.create_client("nats")
+
+assert settings.keycloak is None
+assert settings.minio is None
 ```
 
 ### `Settings`

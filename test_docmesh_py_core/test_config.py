@@ -277,6 +277,43 @@ def test_load_settings_supports_sqlite_without_postgres_configuration():
     assert settings.sqlite.busy_timeout_ms == 5000
 
 
+def test_load_settings_can_limit_validation_to_selected_services():
+    settings = load_settings(
+        {
+            "DOCMESH_ENV": "integration",
+            "NATS_SERVERS": "nats://n1:4222",
+        },
+        services={"nats"},
+    )
+
+    assert settings.common.env == "integration"
+    assert settings.nats is not None
+    assert settings.nats.servers == ["nats://n1:4222"]
+    assert settings.keycloak is None
+    assert settings.postgres is None
+    assert settings.sqlite is None
+    assert settings.minio is None
+    assert settings.milvus is None
+    assert settings.ollama is None
+    assert settings.langfuse is None
+
+
+def test_load_settings_skips_cross_service_defaults_for_unselected_services():
+    settings = load_settings(
+        {
+            "DOCMESH_ENV": "production",
+            "LANGFUSE_ENABLED": "false",
+        },
+        services={"langfuse"},
+    )
+
+    assert settings.common.env == "production"
+    assert settings.langfuse is not None
+    assert settings.langfuse.enabled is False
+    assert settings.langfuse.environment == "production"
+    assert settings.keycloak is None
+
+
 def test_load_settings_parses_sqlite_boolean_and_range_fields():
     settings = load_settings(
         {
