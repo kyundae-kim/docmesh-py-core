@@ -198,8 +198,9 @@ for item in result.services:
 1. `README.md`
 2. [docs/config.md](docs/config.md)
 3. [docs/api.md](docs/api.md)
-4. [docs/srs.md](docs/srs.md)
-5. [docs/test.md](docs/test.md)
+4. [docs/examples.md](docs/examples.md)
+5. [docs/srs.md](docs/srs.md)
+6. [docs/test.md](docs/test.md)
 
 ## 비목표
 
