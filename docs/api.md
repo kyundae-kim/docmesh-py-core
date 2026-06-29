@@ -331,7 +331,7 @@ Keycloak 인증 관련 고수준 진입점입니다.
 - RS256/JWKS 검증을 사용하려면 `allowed_algorithms`에 `RS256`을 포함해야 합니다.
 - `verification_key`는 HS256 검증 시 필요합니다.
 
-### `fetch_access_token(scope=None) -> AccessTokenResult`
+### `fetch_access_token(scope=None, username=None, password=None) -> AccessTokenResult`
 
 Keycloak token endpoint에서 access token을 요청합니다.
 
@@ -340,7 +340,14 @@ Keycloak token endpoint에서 access token을 요청합니다.
 - 기본 grant: `client_credentials`
 - 선택적 `scope` 전달 지원
 - 명시적 설정 시 `password` grant 사용 가능
+- `password` grant에서는 함수 인자 `username`, `password`를 사용
 - `max_retries + 1` 회까지 재시도 시도
+
+입력:
+
+- `scope`: 선택적 OAuth scope override
+- `username`: `password` grant에서 사용할 사용자명
+- `password`: `password` grant에서 사용할 비밀번호
 
 반환 필드:
 
@@ -362,6 +369,7 @@ Keycloak token endpoint에서 access token을 요청합니다.
 - HTTP `400/401/403`은 인증 오류로 분류됩니다.
 - HTTP `408/429` 및 `5xx`는 일시적 오류로 분류되어 재시도 대상이 됩니다.
 - 응답 JSON에 `access_token`, `token_type`, `expires_in`이 없으면 `KeycloakTokenError`가 발생합니다.
+- `password` grant인데 `username` 또는 `password` 인자가 빠지면 `KeycloakTokenConfigurationError`가 발생합니다.
 
 ### `extract_user_info(token) -> AuthenticatedUser`
 

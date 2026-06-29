@@ -175,6 +175,30 @@ def test_keycloak_public_client_allows_missing_client_secret():
     assert settings.keycloak.client_secret is None
 
 
+def test_keycloak_password_grant_does_not_require_username_and_password_at_settings_load_time():
+    settings = load_settings(
+        {
+            "KEYCLOAK_URL": "https://kc.example.com",
+            "KEYCLOAK_REALM": "docmesh",
+            "KEYCLOAK_CLIENT_ID": "backend",
+            "KEYCLOAK_CLIENT_SECRET": "client-secret",
+            "KEYCLOAK_TOKEN_GRANT_TYPE": "password",
+            "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+            "MINIO_ENDPOINT": "minio.example.com:9000",
+            "MINIO_ACCESS_KEY": "minio-access",
+            "MINIO_SECRET_KEY": "minio-secret",
+            "MILVUS_URI": "http://milvus.example.com:19530",
+            "OLLAMA_HOST": "http://ollama.example.com:11434",
+            "LANGFUSE_ENABLED": "false",
+            "NATS_SERVERS": "nats://n1:4222",
+        }
+    )
+
+    assert settings.keycloak.token_grant_type == "password"
+    assert settings.keycloak.token_username is None
+    assert settings.keycloak.token_password is None
+
+
 def test_keycloak_provisioning_requires_single_admin_auth_mode():
     with pytest.raises(ConfigError) as exc_info:
         load_settings(

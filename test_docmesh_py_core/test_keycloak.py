@@ -176,6 +176,41 @@ def test_keycloak_auth_service_treats_server_errors_as_temporary():
         auth.fetch_access_token()
 
 
+def test_keycloak_auth_service_accepts_password_grant_credentials_from_function_parameters():
+    http_client = Mock()
+    http_client.post.return_value = {
+        "status_code": 200,
+        "json": {
+            "access_token": "password-grant-token",
+            "token_type": "Bearer",
+            "expires_in": 300,
+        },
+    }
+    settings = _settings()
+    settings.keycloak.token_grant_type = "password"
+    settings.keycloak.token_username = None
+    settings.keycloak.token_password = None
+
+    auth = KeycloakAuthService(settings, http_client=http_client)
+
+    token = auth.fetch_access_token(username="alice", password="wonderland")
+
+    assert token.access_token == "password-grant-token"
+    http_client.post.assert_called_once_with(
+        "https://kc.example.com/realms/docmesh/protocol/openid-connect/token",
+        data={
+            "grant_type": "password",
+            "client_id": "backend",
+            "client_secret": "client-secret",
+            "username": "alice",
+            "password": "wonderland",
+        },
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=10,
+        verify_ssl=True,
+    )
+
+
 def test_keycloak_auth_service_extracts_standard_user_info_and_roles():
     signing_key = "unit-test-signing-key-32-bytes-min"
     now = datetime.now(UTC)

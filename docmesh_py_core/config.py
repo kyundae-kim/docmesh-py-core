@@ -140,13 +140,6 @@ class KeycloakConfig(DocmeshBaseSettings):
                 raise ValueError('KEYCLOAK provisioning requires a single admin auth mode')
         return self
 
-    @model_validator(mode='after')
-    @log_function_boundary()
-    def validate_token_grant_requirements(self) -> 'KeycloakConfig':
-        if self.token_grant_type == 'password' and (not (self.token_username and self.token_password)):
-            missing = 'KEYCLOAK_TOKEN_USERNAME' if not self.token_username else 'KEYCLOAK_TOKEN_PASSWORD'
-            raise ValueError(f'Missing required environment variable: {missing}')
-        return self
 
 class PostgresConfig(DocmeshBaseSettings):
     model_config = SettingsConfigDict(extra='ignore', case_sensitive=False, env_prefix='POSTGRES_')

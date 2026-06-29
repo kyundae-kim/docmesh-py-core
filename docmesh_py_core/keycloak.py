@@ -165,7 +165,7 @@ class KeycloakAuthService:
         self._jwks_cache_loaded_at: float | None = None
 
     @log_function_boundary()
-    def fetch_access_token(self, *, scope: str | None=None) -> AccessTokenResult:
+    def fetch_access_token(self, *, scope: str | None=None, username: str | None=None, password: str | None=None) -> AccessTokenResult:
         config = self.settings.keycloak
         payload = {'grant_type': config.token_grant_type, 'client_id': config.client_id}
         if config.client_secret:
@@ -174,10 +174,10 @@ class KeycloakAuthService:
         if effective_scope:
             payload['scope'] = effective_scope
         if config.token_grant_type == 'password':
-            if not (config.token_username and config.token_password):
-                raise KeycloakTokenConfigurationError('Password grant requires KEYCLOAK_TOKEN_USERNAME and KEYCLOAK_TOKEN_PASSWORD')
-            payload['username'] = config.token_username
-            payload['password'] = config.token_password
+            if not (username and password):
+                raise KeycloakTokenConfigurationError('Password grant requires username and password function arguments')
+            payload['username'] = username
+            payload['password'] = password
         max_attempts = config.max_retries + 1
         attempt_index = 0
 

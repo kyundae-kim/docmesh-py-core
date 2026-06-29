@@ -167,6 +167,8 @@ registry.close_all()
 
 ## 5. Keycloak access token 획득 예시
 
+### client credentials grant
+
 ```python
 from os import environ
 
@@ -181,12 +183,27 @@ print(token.token_type)
 print(token.expires_in)
 ```
 
-password grant를 쓸 때는 추가 env가 필요합니다.
+### password grant
+
+설정에서는 grant type만 지정하고, 실제 사용자 credential은 함수 인자로 전달합니다.
 
 ```env
 KEYCLOAK_TOKEN_GRANT_TYPE=password
-KEYCLOAK_TOKEN_USERNAME=alice
-KEYCLOAK_TOKEN_PASSWORD=replace-me
+```
+
+```python
+from os import environ
+
+from docmesh_py_core import KeycloakAuthService, load_settings
+
+settings = load_settings(environ)
+auth = KeycloakAuthService(settings)
+
+token = auth.fetch_access_token(
+    username="alice",
+    password="replace-me",
+)
+print(token.access_token)
 ```
 
 ## 6. Keycloak JWT 검증 예시 (RS256)
