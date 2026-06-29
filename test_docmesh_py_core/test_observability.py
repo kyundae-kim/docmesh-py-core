@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
 
 from docmesh_py_core.config import load_settings
+from docmesh_py_core.function_logging import _resolve_log_level, configure_logging, log_function_boundary
 from docmesh_py_core.keycloak import KeycloakAuthService, KeycloakTokenTemporaryError
 from docmesh_py_core.observability import build_service_log_event
 from docmesh_py_core.retry import retry_call
@@ -156,3 +158,64 @@ def test_keycloak_auth_service_retries_temporary_token_failures_and_logs_events(
     assert third_event["retry_count"] == 2
     assert third_event["latency_ms"] == 400
     assert "error" not in third_event
+
+
+def test_configure_logging_writes_function_boundary_logs_to_file(tmp_path: Path):
+    root_logger = logging.getLogger()
+    original_handlers = list(root_logger.handlers)
+    original_level = root_logger.level
+    log_path = tmp_path / "app.log"
+
+    @log_function_boundary()
+    def sample_operation() -> str:
+        return "ok"
+
+    try:
+        configure_logging(log_path=log_path, force=True)
+
+        assert sample_operation() == "ok"
+    finally:
+        for handler in list(root_logger.handlers):
+            handler.close()
+        root_logger.handlers = original_handlers
+        root_logger.setLevel(original_level)
+
+    log_output = log_path.read_text(encoding="utf-8")
+    assert "function_start" in log_output
+    assert "function_end" in log_output
+    assert "sample_operation" in log_output
+
+
+def test_package_root_exports_configure_logging():
+    from docmesh_py_core import configure_logging as exported_configure_logging
+
+    assert exported_configure_logging is configure_logging
+
+
+def test_resolve_log_level_defaults_to_info_when_unset():
+    assert _resolve_log_level(level=None, env={}, env_key="DOCMESH_LOG_LEVEL") == logging.INFO
+
+
+def test_resolve_log_level_reads_docmesh_log_level_from_env():
+    assert _resolve_log_level(
+        level=None,
+        env={"DOCMESH_LOG_LEVEL": "error"},
+        env_key="DOCMESH_LOG_LEVEL",
+    ) == "ERROR"
+
+
+def test_resolve_log_level_prefers_explicit_level_over_env():
+    assert _resolve_log_level(
+        level=logging.WARNING,
+        env={"DOCMESH_LOG_LEVEL": "DEBUG"},
+        env_key="DOCMESH_LOG_LEVEL",
+    ) == logging.WARNING
+
+
+def test_resolve_log_level_rejects_invalid_env_value():
+    with pytest.raises(ValueError, match="DOCMESH_LOG_LEVEL must be one of"):
+        _resolve_log_level(
+            level=None,
+            env={"DOCMESH_LOG_LEVEL": "LOUD"},
+            env_key="DOCMESH_LOG_LEVEL",
+        )

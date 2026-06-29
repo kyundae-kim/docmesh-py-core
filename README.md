@@ -62,16 +62,26 @@ uv sync
 
 ## 빠른 시작
 
-가장 일반적인 사용 순서는 다음과 같습니다.
+이 패키지는 보통 두 가지 방식으로 시작합니다.
+
+### A. 전체 서비스 구성을 한 번에 검증하는 경로
+
+적합한 상황:
+
+- 애플리케이션이 이 라이브러리의 표준 서비스 묶음을 전반적으로 사용함
+- 시작 시점에 전체 환경 구성을 한 번에 검증하고 싶음
+- 배포/운영에서 누락된 env를 초기에 빠르게 발견하고 싶음
+
+기본 순서:
 
 1. 환경변수 준비
-2. `load_settings()`로 설정 로딩/검증
+2. `load_settings()`로 전체 설정 로딩/검증
 3. `ServiceFactoryRegistry(settings)` 생성
 4. 필요한 서비스만 `create_client()`로 생성
 5. 시작 시점에 `check()` 또는 `check_all_services()` 호출
 6. 종료 시 `close_all()` 호출
 
-### 예시: PostgreSQL 사용
+#### 예시: PostgreSQL 사용
 
 ```python
 from os import environ
@@ -90,7 +100,7 @@ with postgres.connect() as conn:
 registry.close_all()
 ```
 
-### 예시: SQLite 사용
+#### 예시: SQLite 사용
 
 ```python
 from os import environ
@@ -108,6 +118,53 @@ with sqlite.connect() as conn:
 
 registry.close_all()
 ```
+
+### B. 필요한 서비스만 선택 로딩하는 경로
+
+적합한 상황:
+
+- 공용 라이브러리/모듈이 특정 서비스 몇 개만 사용함
+- 사용하지 않는 서비스 env까지 강제하고 싶지 않음
+- 테스트/로컬 도구/부분 기능 앱에서 설정 결합을 줄이고 싶음
+
+기본 순서:
+
+1. 환경변수 준비
+2. `load_settings(env, services={...})`로 필요한 서비스만 선택 로딩
+3. `ServiceFactoryRegistry(settings)` 생성
+4. 로드된 서비스만 `create_client()`로 획득
+5. 필요한 검증만 수행
+6. 종료 시 `close_all()` 호출
+
+#### 예시: SQLite + NATS만 사용
+
+```python
+from os import environ
+
+from docmesh_py_core import ServiceFactoryRegistry, load_settings
+
+settings = load_settings(
+    environ,
+    services={"sqlite", "nats"},
+)
+registry = ServiceFactoryRegistry(settings)
+
+sqlite = registry.create_client("sqlite")
+sqlite.check()
+
+builder = registry.create_client("nats")
+
+assert settings.keycloak is None
+assert settings.minio is None
+
+registry.close_all()
+```
+
+포인트:
+
+- `services`를 지정하면 필요한 서비스만 검증/로딩합니다.
+- 선택되지 않은 서비스 설정 필드는 `None`입니다.
+- `ServiceFactoryRegistry`도 실제로 로드된 서비스만 노출합니다.
 
 ### 예시: Keycloak 토큰 획득 및 사용자 정보 추출
 
@@ -132,12 +189,31 @@ print(user.sub, user.preferred_username)
 
 ```python
 from docmesh_py_core import (
+    AccessTokenResult,
+    AuthenticatedUser,
     ConfigError,
+    configure_logging,
+    HealthCheckError,
     KeycloakAuthService,
+    KeycloakProvisioner,
+    KeycloakTokenAuthenticationError,
+    KeycloakTokenConfigurationError,
+    KeycloakTokenError,
+    KeycloakTokenTemporaryError,
+    NatsConnectionBuilder,
+    ServiceClientError,
+    ServiceClientWrapper,
+    ServiceClientWrapperError,
     ServiceFactoryRegistry,
     Settings,
+    SqliteConfig,
+    TokenValidationError,
+    UnsupportedServiceError,
+    build_service_log_event,
     check_all_services,
     load_settings,
+    mask_sensitive_value,
+    retry_call,
 )
 ```
 
@@ -151,6 +227,12 @@ from docmesh_py_core import (
 - 민감정보는 로그와 예외 메시지에서 마스킹해야 합니다.
 - 운영 환경에서는 TLS 검증을 기본으로 유지해야 합니다.
 - 서비스별 timeout/retry는 각 서비스 환경변수로 관리합니다.
+
+로깅:
+
+- 공용 로깅 초기화는 `configure_logging()`을 사용합니다.
+- `level`을 명시하지 않으면 `DOCMESH_LOG_LEVEL`을 읽습니다.
+- 지정이 없으면 기본값은 `INFO`입니다.
 
 자세한 환경변수 목록은 [docs/config.md](docs/config.md)를 참고하세요.
 
@@ -180,8 +262,9 @@ for item in result.services:
 1. `README.md`
 2. [docs/config.md](docs/config.md)
 3. [docs/api.md](docs/api.md)
-4. [docs/sdk.md](docs/sdk.md)
-5. [docs/test.md](docs/test.md)
+4. [docs/examples.md](docs/examples.md)
+5. [docs/srs.md](docs/srs.md)
+6. [docs/test.md](docs/test.md)
 
 ## 비목표
 

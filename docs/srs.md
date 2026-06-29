@@ -49,9 +49,11 @@
 
 1. Keycloak, PostgreSQL, SQLite, MinIO, Milvus, Ollama, Langfuse, NATS 클라이언트 생성을 지원해야 한다.
 2. 각 서비스는 독립적으로 생성 가능해야 한다.
-3. 지연 연결을 우선 지원해야 한다.
-4. 필요한 서비스만 선택 생성 가능해야 한다.
-5. 종료가 필요한 클라이언트는 명시적 종료 인터페이스를 제공해야 한다.
+3. `ServiceFactoryRegistry.create_client()`는 서비스별 SDK 클라이언트 또는 래퍼를 생성해야 한다.
+4. NATS는 builder를 반환하고 실제 네트워크 연결은 `connect()`/`ping()`/`check()` 호출 시 수행해야 한다.
+5. 다른 서비스는 팩토리 생성 시 SDK 클라이언트 객체를 초기화할 수 있다.
+6. 필요한 서비스만 선택 생성 가능해야 한다.
+7. 종료가 필요한 클라이언트는 명시적 종료 인터페이스를 제공해야 한다.
 
 ### FR-3. 저장소 선택 및 SQLite
 
@@ -73,12 +75,20 @@
 
 ### FR-5. 오류 처리 및 로깅
 
-1. 설정 오류, 인증 오류, 연결 거부, DNS 오류, 타임아웃을 구분 가능한 오류로 제공해야 한다.
+1. 설정 오류와 핵심 인증/토큰 오류는 구분 가능한 공개 오류로 제공해야 한다.
 2. 필수 환경변수 누락 오류에는 변수명을 포함해야 한다.
 3. 설정 오류와 영구 인증 오류는 자동 재시도하면 안 된다.
 4. 서비스별 재시도 횟수와 지수 백오프를 적용할 수 있어야 한다.
 5. 연결 시도/성공/실패/재시도/종료를 구조화 로그로 기록할 수 있어야 한다.
 6. 비밀번호, 토큰, Secret Key, 전체 DSN/URI는 로그와 예외에 기록하면 안 된다.
+
+공개 오류 모델 최소 범위:
+
+- `ConfigError`
+- `ServiceClientError`, `ServiceClientWrapperError`, `UnsupportedServiceError`
+- `HealthCheckError`
+- `KeycloakTokenConfigurationError`, `KeycloakTokenAuthenticationError`, `KeycloakTokenTemporaryError`, `KeycloakTokenError`
+- `TokenValidationError`
 
 ### FR-6. Keycloak 프로비저닝
 

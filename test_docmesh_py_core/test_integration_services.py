@@ -47,8 +47,16 @@ def test_keycloak_fetch_access_token_against_real_service():
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
     settings = load_settings(service_env("keycloak"))
+    auth = KeycloakAuthService(settings)
 
-    token = KeycloakAuthService(settings).fetch_access_token()
+    fetch_kwargs = {}
+    if settings.keycloak.token_grant_type == "password":
+        fetch_kwargs = {
+            "username": settings.keycloak.token_username,
+            "password": settings.keycloak.token_password,
+        }
+
+    token = auth.fetch_access_token(**fetch_kwargs)
 
     assert token.access_token
     assert token.token_type

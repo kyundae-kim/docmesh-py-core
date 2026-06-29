@@ -149,6 +149,20 @@ def test_service_factory_registry_can_create_selected_clients_only():
     postgres_builder.assert_not_called()
 
 
+def test_service_factory_registry_exposes_only_services_loaded_into_settings():
+    settings = load_settings(
+        {
+            "NATS_SERVERS": "nats://n1:4222",
+        },
+        services={"nats"},
+    )
+    registry = ServiceFactoryRegistry(settings)
+
+    assert isinstance(registry.create_client("nats"), NatsConnectionBuilder)
+    with pytest.raises(UnsupportedServiceError):
+        registry.create_client("keycloak")
+
+
 def test_service_factory_registry_creates_sqlite_wrapper_and_healthcheck(monkeypatch):
     fake_sqlite_client = Mock(name="sqlite-engine")
     connection = Mock()
@@ -223,8 +237,8 @@ def test_service_factory_registry_uses_service_specific_default_builders(monkeyp
     postgres_ctor.assert_called_once()
     postgres_url = postgres_ctor.call_args.args[0]
     assert isinstance(postgres_url, URL)
-    assert postgres_url.render_as_string(hide_password=True) == "postgresql://docmesh:***@db.example.com:5432/app"
-    assert postgres_url.render_as_string(hide_password=False) == "postgresql://docmesh:secret@db.example.com:5432/app"
+    assert postgres_url.render_as_string(hide_password=True) == "postgresql+psycopg://docmesh:***@db.example.com:5432/app"
+    assert postgres_url.render_as_string(hide_password=False) == "postgresql+psycopg://docmesh:secret@db.example.com:5432/app"
     assert postgres_ctor.call_args.kwargs == {
         "pool_size": 5,
         "max_overflow": 10,
