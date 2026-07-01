@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 import jwt
 from jwt import algorithms
 from jwt.exceptions import InvalidAlgorithmError, InvalidAudienceError, InvalidIssuerError, InvalidTokenError, MissingRequiredClaimError
-from .config import Settings
+from .config import KeycloakConfig
 from .observability import build_service_log_event
 from .retry import retry_call
 from .security import mask_sensitive_value
@@ -71,6 +71,7 @@ class AuthenticatedUser:
 class KeycloakError(RuntimeError):
     pass
 
+
 class KeycloakTokenError(KeycloakError):
     pass
 
@@ -120,13 +121,13 @@ class _UrllibKeycloakHttpClient:
 class KeycloakProvisioner:
 
     @log_function_boundary()
-    def __init__(self, settings: Settings, *, admin_client: KeycloakAdminClient) -> None:
-        self.settings = settings
+    def __init__(self, config: KeycloakConfig, *, admin_client: KeycloakAdminClient) -> None:
+        self.config = config
         self.admin_client = admin_client
 
     @log_function_boundary()
     def provision(self) -> ProvisioningResult:
-        config = self.settings.keycloak
+        config = self.config
         result = ProvisioningResult(dry_run=config.provisioning_dry_run)
         operations = [(f'realm:{config.realm}', lambda: self.admin_client.ensure_realm(config)), (f'client:{config.client_id}', lambda: self.admin_client.ensure_client(config))]
         operations.extend(((f'realm-role:{role}', lambda role=role: self.admin_client.ensure_realm_role(config.realm, role)) for role in config.realm_roles))
@@ -151,8 +152,8 @@ class KeycloakProvisioner:
 class KeycloakAuthService:
 
     @log_function_boundary()
-    def __init__(self, settings: Settings, *, http_client: KeycloakHttpClient | None=None, verification_key: str | None=None, allowed_algorithms: list[str] | None=None, logger: logging.Logger | None=None, event_logger: callable | None=None, timer: callable=time.perf_counter, sleep: callable=time.sleep, current_time: callable=time.time) -> None:
-        self.settings = settings
+    def __init__(self, config: KeycloakConfig, *, http_client: KeycloakHttpClient | None=None, verification_key: str | None=None, allowed_algorithms: list[str] | None=None, logger: logging.Logger | None=None, event_logger: callable | None=None, timer: callable=time.perf_counter, sleep: callable=time.sleep, current_time: callable=time.time) -> None:
+        self.config = config
         self.http_client = http_client or _UrllibKeycloakHttpClient()
         self.verification_key = verification_key
         self.allowed_algorithms = allowed_algorithms or ['HS256']
@@ -166,7 +167,7 @@ class KeycloakAuthService:
 
     @log_function_boundary()
     def fetch_access_token(self, *, scope: str | None=None, username: str | None=None, password: str | None=None) -> AccessTokenResult:
-        config = self.settings.keycloak
+        config = self.config
         payload = {'grant_type': config.token_grant_type, 'client_id': config.client_id}
         if config.client_secret:
             payload['client_secret'] = config.client_secret
@@ -219,7 +220,7 @@ class KeycloakAuthService:
     @property
     @log_function_boundary()
     def issuer(self) -> str:
-        return f"{self.settings.keycloak.url.rstrip('/')}/realms/{self.settings.keycloak.realm}"
+        return f"{self.config.url.rstrip('/')}/realms/{self.config.realm}"
 
     @property
     @log_function_boundary()
@@ -300,13 +301,13 @@ class KeycloakAuthService:
 
     @log_function_boundary()
     def _get_jwks(self, *, force_refresh: bool=False) -> dict[str, Any]:
-        ttl_seconds = self.settings.keycloak.jwks_cache_ttl_seconds
+        ttl_seconds = self.config.jwks_cache_ttl_seconds
         if not force_refresh and self._jwks_cache is not None:
             if self._jwks_cache_loaded_at is None:
                 return self._jwks_cache
             if ttl_seconds == 0 or self.current_time() - self._jwks_cache_loaded_at < ttl_seconds:
                 return self._jwks_cache
-        response = self.http_client.get(self.jwks_endpoint, headers={'Accept': 'application/json'}, timeout=self.settings.keycloak.request_timeout_seconds, verify_ssl=self.settings.keycloak.verify_ssl)
+        response = self.http_client.get(self.jwks_endpoint, headers={'Accept': 'application/json'}, timeout=self.config.request_timeout_seconds, verify_ssl=self.config.verify_ssl)
         status_code = int(response.get('status_code', 0))
         body = response.get('json')
         if status_code < 200 or status_code >= 300 or (not isinstance(body, dict)):
@@ -353,7 +354,7 @@ class KeycloakAuthService:
     @log_function_boundary()
     def _build_decode_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {'issuer': self.issuer, 'options': {'require': ['exp']}}
-        expected_audience = self.settings.keycloak.audience
+        expected_audience = self.config.audience
         if expected_audience:
             kwargs['audience'] = expected_audience
         else:
@@ -402,7 +403,7 @@ class KeycloakAuthService:
 
     @log_function_boundary()
     def _emit_token_event(self, *, outcome: str, retry_count: int, latency_ms: int, error: str | None=None) -> None:
-        event = build_service_log_event(service='keycloak', operation='fetch_access_token', outcome=outcome, host=self.settings.keycloak.url, latency_ms=latency_ms, retry_count=retry_count, error=error)
+        event = build_service_log_event(service='keycloak', operation='fetch_access_token', outcome=outcome, host=self.config.url, latency_ms=latency_ms, retry_count=retry_count, error=error)
         self.event_logger(event)
 
     @log_function_boundary()

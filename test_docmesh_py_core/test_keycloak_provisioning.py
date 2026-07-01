@@ -4,15 +4,22 @@ from unittest.mock import Mock
 
 import pytest
 
-from docmesh_py_core.config import load_settings
+from docmesh_py_core.config import require_keycloak_config as _runtime_require_keycloak_config
 from docmesh_py_core.keycloak import KeycloakProvisioner
+from test_docmesh_py_core.conftest import apply_docmesh_env
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
 
 
-def _settings(*, dry_run: bool = False):
-    return load_settings(
+def require_keycloak_config(env: dict[str, str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return _runtime_require_keycloak_config()
+
+
+def _config(*, dry_run: bool = False):
+    return require_keycloak_config(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -44,7 +51,7 @@ def test_keycloak_provisioner_reports_created_updated_unchanged_and_failed_items
     admin.ensure_realm_role.side_effect = ["unchanged", RuntimeError("client_secret leaked-value")]
     admin.ensure_client_role.return_value = "created"
 
-    result = KeycloakProvisioner(_settings(), admin_client=admin).provision()
+    result = KeycloakProvisioner(_config(), admin_client=admin).provision()
 
     assert result.created == ["realm:docmesh", "client-role:backend/admin"]
     assert result.updated == ["client:backend"]
@@ -57,7 +64,7 @@ def test_keycloak_provisioner_reports_created_updated_unchanged_and_failed_items
 def test_keycloak_provisioner_supports_dry_run_without_mutations():
     admin = Mock()
 
-    result = KeycloakProvisioner(_settings(dry_run=True), admin_client=admin).provision()
+    result = KeycloakProvisioner(_config(dry_run=True), admin_client=admin).provision()
 
     assert result.dry_run is True
     assert "realm:docmesh" in result.planned
@@ -73,7 +80,7 @@ def test_keycloak_provisioner_is_idempotent_when_resources_already_exist():
     admin.ensure_realm_role.return_value = "unchanged"
     admin.ensure_client_role.return_value = "unchanged"
 
-    result = KeycloakProvisioner(_settings(), admin_client=admin).provision()
+    result = KeycloakProvisioner(_config(), admin_client=admin).provision()
 
     assert result.created == []
     assert result.updated == []
@@ -98,7 +105,7 @@ def test_keycloak_provisioner_does_not_delete_unspecified_resources():
     admin.delete_client = Mock()
     admin.delete_role = Mock()
 
-    KeycloakProvisioner(_settings(), admin_client=admin).provision()
+    KeycloakProvisioner(_config(), admin_client=admin).provision()
 
     admin.delete_realm.assert_not_called()
     admin.delete_client.assert_not_called()

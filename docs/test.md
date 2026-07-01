@@ -269,7 +269,7 @@
 
 - 로컬 실행은 docker compose 또는 testcontainers 중 하나를 표준으로 정한다.
 - 서비스별 readiness 조건이 충족된 뒤 테스트를 시작한다.
-- integration 전용 env 파일 또는 CI secret을 사용하고, `.env.example`의 placeholder 값을 그대로 사용하지 않는다.
+- integration 전용 env 파일(`env/integration.env`) 또는 CI secret을 사용하고, `.env.example`의 placeholder 값을 그대로 사용하지 않는다.
 - 테스트 데이터는 운영 계정이 아닌 전용 테스트 realm, bucket, database, client, token으로 분리한다.
 - 가능하면 테스트 종료 후 생성 리소스를 정리하되, Keycloak provisioning의 멱등성 확인에 필요한 최소 상태는 유지할 수 있다.
 

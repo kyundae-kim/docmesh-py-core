@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 from pydantic_settings import BaseSettings
@@ -8,26 +10,185 @@ from pydantic_settings import BaseSettings
 pytestmark = [pytest.mark.unit]
 
 from docmesh_py_core.config import (
+    CommonConfig,
     ConfigError,
     KeycloakConfig,
     LangfuseConfig,
+    MinioConfig,
+    MilvusConfig,
     NatsConfig,
+    OllamaConfig,
     PostgresConfig,
+    ServiceConfigs,
     SqliteConfig,
-    Settings,
-    load_settings,
+    apply_langfuse_defaults,
+    load_service_configs as _runtime_load_service_configs,
+    load_common_config as _runtime_load_common_config,
+    require_langfuse_config as _runtime_require_langfuse_config,
+    require_keycloak_config as _runtime_require_keycloak_config,
+    load_settings as _runtime_load_settings,
+    validate_runtime_security,
 )
 from docmesh_py_core.security import mask_sensitive_value
+from test_docmesh_py_core.conftest import apply_docmesh_env
+
+
+def load_common_config(env: dict[str, str] | None = None) -> CommonConfig:
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return _runtime_load_common_config()
+
+
+def build_postgres_config(env: dict[str, str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return PostgresConfig()
+
+
+def require_keycloak_config(env: dict[str, str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return _runtime_require_keycloak_config()
+
+
+def require_langfuse_config(env: dict[str, str] | None = None, *, common: CommonConfig | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return _runtime_require_langfuse_config(common=common)
+
+
+def load_settings(env: dict[str, str] | None = None, *, services: set[str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return _runtime_load_settings(services=services)
+
+
+def load_service_configs(env: dict[str, str] | None = None, *, services: set[str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return _runtime_load_service_configs(services=services)
+
+
+def test_load_common_config_defaults():
+    config = load_common_config({})
+
+    assert isinstance(config, CommonConfig)
+    assert config.env == "development"
+    assert config.healthcheck_enabled is True
+
+
+def test_postgres_config_raises_when_required_env_is_missing():
+    with pytest.raises(ConfigError) as exc_info:
+        load_service_configs({}, services={"postgres"})
+
+    assert "POSTGRES_HOST" in str(exc_info.value)
+
+
+def test_direct_postgres_config_construction_reads_process_environment():
+    config = build_postgres_config({"POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app"})
+
+    assert config.dsn == "postgresql://user:***@db.example.com:5432/app"
+    assert config.port == 5432
+
+
+def test_sqlite_config_raises_when_required_env_is_missing():
+    with pytest.raises(ConfigError) as exc_info:
+        load_service_configs({}, services={"sqlite"})
+
+    assert "SQLITE_PATH" in str(exc_info.value)
+
+
+def test_require_keycloak_config_raises_when_missing_required_env():
+    with pytest.raises(ConfigError) as exc_info:
+        require_keycloak_config({})
+
+    assert "KEYCLOAK_URL" in str(exc_info.value)
+
+
+def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("KEYCLOAK_URL", "https://ambient.example.com")
+    monkeypatch.setenv("KEYCLOAK_REALM", "ambient")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "ambient-client")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "ambient-secret")
+
+    config = KeycloakConfig()
+
+    assert config.url == "https://ambient.example.com"
+    assert config.realm == "ambient"
+    assert config.client_id == "ambient-client"
+
+
+def test_mapping_loader_ignores_process_environment(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("KEYCLOAK_URL", "https://ambient.example.com")
+    monkeypatch.setenv("KEYCLOAK_REALM", "ambient")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "ambient-client")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "ambient-secret")
+
+    with pytest.raises(ConfigError) as exc_info:
+        require_keycloak_config({})
+
+    assert "KEYCLOAK_URL" in str(exc_info.value)
+
+
+def test_require_langfuse_config_inherits_common_env():
+    common = load_common_config({"DOCMESH_ENV": "integration"})
+
+    config = require_langfuse_config(
+        {
+            "LANGFUSE_HOST": "https://langfuse.example.com",
+            "LANGFUSE_PUBLIC_KEY": "public-key",
+            "LANGFUSE_SECRET_KEY": "secret-key",
+        },
+        common=common,
+    )
+    assert config.environment == "integration"
+
+
+def test_langfuse_config_raises_when_required_env_is_missing():
+    with pytest.raises(ConfigError) as exc_info:
+        load_service_configs({}, services={"langfuse"})
+
+    assert "LANGFUSE_HOST" in str(exc_info.value)
+
+
+def test_apply_langfuse_defaults_sets_environment_from_common():
+    common = CommonConfig(env="production")
+    langfuse = LangfuseConfig(enabled=False)
+
+    updated = apply_langfuse_defaults(common, langfuse)
+
+    assert updated is langfuse
+    assert updated.environment == "production"
+
+
+def test_validate_runtime_security_rejects_disabled_ssl_in_production():
+    common = CommonConfig(env="production")
+    keycloak = KeycloakConfig(
+        _env_prefix="__DOCMESH_DISABLED__",
+        url="https://kc.example.com",
+        realm="docmesh",
+        client_id="backend",
+        client_secret="secret",
+        verify_ssl=False,
+    )
+
+    with pytest.raises(ConfigError) as exc_info:
+        validate_runtime_security(common, keycloak=keycloak)
+
+    assert "SSL verification" in str(exc_info.value)
 
 
 def test_load_settings_parses_required_services_and_defaults():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
             "KEYCLOAK_CLIENT_ID": "backend",
             "KEYCLOAK_CLIENT_SECRET": "client-secret",
             "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+            "SQLITE_PATH": ":memory:",
             "MINIO_ENDPOINT": "minio.example.com:9000",
             "MINIO_ACCESS_KEY": "minio-access",
             "MINIO_SECRET_KEY": "minio-secret",
@@ -56,6 +217,35 @@ def test_load_settings_parses_required_services_and_defaults():
     assert settings.nats.servers == ["nats://n1:4222", "nats://n2:4222"]
 
 
+def test_load_settings_emits_deprecation_warning_and_preserves_behavior():
+    env = {
+        "KEYCLOAK_URL": "https://kc.example.com",
+        "KEYCLOAK_REALM": "docmesh",
+        "KEYCLOAK_CLIENT_ID": "backend",
+        "KEYCLOAK_CLIENT_SECRET": "client-secret",
+        "MINIO_ENDPOINT": "minio.example.com:9000",
+        "MINIO_ACCESS_KEY": "minio-access",
+        "MINIO_SECRET_KEY": "minio-secret",
+        "MILVUS_URI": "http://milvus.example.com:19530",
+        "OLLAMA_HOST": "http://ollama.example.com:11434",
+        "LANGFUSE_HOST": "https://langfuse.example.com",
+        "LANGFUSE_PUBLIC_KEY": "public-key",
+        "LANGFUSE_SECRET_KEY": "secret-key",
+        "NATS_SERVERS": "nats://n1:4222",
+    }
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", DeprecationWarning)
+            settings = _runtime_load_settings(services={"keycloak", "minio", "milvus", "ollama", "langfuse", "nats"})
+
+    assert isinstance(settings, ServiceConfigs)
+    assert any("load_settings() is deprecated" in str(item.message) for item in caught)
+    assert settings.keycloak is not None
+    assert settings.minio is not None
+
+
 def test_load_settings_rejects_blank_required_values():
     with pytest.raises(ConfigError) as exc_info:
         load_settings(
@@ -65,6 +255,7 @@ def test_load_settings_rejects_blank_required_values():
                 "KEYCLOAK_CLIENT_ID": "backend",
                 "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
                 "MINIO_SECRET_KEY": "minio-secret",
@@ -90,6 +281,7 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
                 "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "KEYCLOAK_VERIFY_SSL": "yes",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
                 "MINIO_SECRET_KEY": "minio-secret",
@@ -112,6 +304,7 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
                 "KEYCLOAK_CLIENT_ID": "backend",
                 "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "POSTGRES_POOL_SIZE": "0",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
@@ -136,6 +329,7 @@ def test_keycloak_confidential_client_requires_client_secret():
                 "KEYCLOAK_REALM": "docmesh",
                 "KEYCLOAK_CLIENT_ID": "backend",
                 "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
                 "MINIO_SECRET_KEY": "minio-secret",
@@ -159,6 +353,7 @@ def test_keycloak_public_client_allows_missing_client_secret():
             "KEYCLOAK_CLIENT_ID": "backend",
             "KEYCLOAK_CLIENT_PUBLIC": "true",
             "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+            "SQLITE_PATH": ":memory:",
             "MINIO_ENDPOINT": "minio.example.com:9000",
             "MINIO_ACCESS_KEY": "minio-access",
             "MINIO_SECRET_KEY": "minio-secret",
@@ -184,6 +379,7 @@ def test_keycloak_password_grant_does_not_require_username_and_password_at_setti
             "KEYCLOAK_CLIENT_SECRET": "client-secret",
             "KEYCLOAK_TOKEN_GRANT_TYPE": "password",
             "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+            "SQLITE_PATH": ":memory:",
             "MINIO_ENDPOINT": "minio.example.com:9000",
             "MINIO_ACCESS_KEY": "minio-access",
             "MINIO_SECRET_KEY": "minio-secret",
@@ -212,6 +408,7 @@ def test_keycloak_provisioning_requires_single_admin_auth_mode():
                 "KEYCLOAK_ADMIN_USERNAME": "admin",
                 "KEYCLOAK_ADMIN_PASSWORD": "password",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
                 "MINIO_SECRET_KEY": "minio-secret",
@@ -236,6 +433,7 @@ def test_langfuse_disabled_makes_credentials_optional():
             "KEYCLOAK_CLIENT_ID": "backend",
             "KEYCLOAK_CLIENT_SECRET": "client-secret",
             "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+            "SQLITE_PATH": ":memory:",
             "MINIO_ENDPOINT": "minio.example.com:9000",
             "MINIO_ACCESS_KEY": "minio-access",
             "MINIO_SECRET_KEY": "minio-secret",
@@ -266,7 +464,8 @@ def test_load_settings_supports_sqlite_without_postgres_configuration():
             "OLLAMA_HOST": "http://ollama.example.com:11434",
             "LANGFUSE_ENABLED": "false",
             "NATS_SERVERS": "nats://n1:4222",
-        }
+        },
+        services={"sqlite"},
     )
 
     assert settings.postgres is None
@@ -332,7 +531,8 @@ def test_load_settings_parses_sqlite_boolean_and_range_fields():
             "OLLAMA_HOST": "http://ollama.example.com:11434",
             "LANGFUSE_ENABLED": "false",
             "NATS_SERVERS": "nats://n1:4222",
-        }
+        },
+        services={"sqlite"},
     )
 
     assert settings.sqlite is not None
@@ -358,7 +558,8 @@ def test_load_settings_rejects_invalid_sqlite_values():
                 "OLLAMA_HOST": "http://ollama.example.com:11434",
                 "LANGFUSE_ENABLED": "false",
                 "NATS_SERVERS": "nats://n1:4222",
-            }
+            },
+            services={"sqlite"},
         )
 
     assert "SQLITE_READONLY" in str(exc_info.value)
@@ -379,7 +580,8 @@ def test_load_settings_rejects_invalid_sqlite_values():
                 "OLLAMA_HOST": "http://ollama.example.com:11434",
                 "LANGFUSE_ENABLED": "false",
                 "NATS_SERVERS": "nats://n1:4222",
-            }
+            },
+            services={"sqlite"},
         )
 
     assert "SQLITE_BUSY_TIMEOUT_MS" in str(range_exc_info.value)
@@ -394,6 +596,7 @@ def test_nats_allows_only_single_authentication_mode():
                 "KEYCLOAK_CLIENT_ID": "backend",
                 "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
                 "MINIO_SECRET_KEY": "minio-secret",
@@ -424,6 +627,7 @@ def test_ssl_verification_cannot_be_disabled_in_production():
                 "KEYCLOAK_CLIENT_SECRET": "client-secret",
                 "KEYCLOAK_VERIFY_SSL": "false",
                 "POSTGRES_DSN": "postgresql://user:secret@db.example.com:5432/app",
+                "SQLITE_PATH": ":memory:",
                 "MINIO_ENDPOINT": "minio.example.com:9000",
                 "MINIO_ACCESS_KEY": "minio-access",
                 "MINIO_SECRET_KEY": "minio-secret",
@@ -477,8 +681,7 @@ def test_service_configs_use_settings_config_prefixes_instead_of_validation_alia
     ]
 
 
-def test_settings_is_base_settings_aggregate_and_builds_from_environment(monkeypatch: pytest.MonkeyPatch):
-    assert issubclass(Settings, BaseSettings)
+def test_service_configs_is_thin_bundle_and_builds_from_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("DOCMESH_ENV", raising=False)
 
     env_values = {
@@ -487,6 +690,7 @@ def test_settings_is_base_settings_aggregate_and_builds_from_environment(monkeyp
         "KEYCLOAK_CLIENT_ID": "backend",
         "KEYCLOAK_CLIENT_SECRET": "client-secret",
         "POSTGRES_DSN": "postgresql://user:***@db.example.com:5432/app",
+        "SQLITE_PATH": ":memory:",
         "MINIO_ENDPOINT": "minio.example.com:9000",
         "MINIO_ACCESS_KEY": "minio-access",
         "MINIO_SECRET_KEY": "minio-secret",
@@ -500,8 +704,9 @@ def test_settings_is_base_settings_aggregate_and_builds_from_environment(monkeyp
     for key, value in env_values.items():
         monkeypatch.setenv(key, value)
 
-    settings = Settings()
+    settings = load_service_configs(env_values)
 
+    assert isinstance(settings, ServiceConfigs)
     assert settings.keycloak.url == "https://kc.example.com"
     assert settings.postgres.dsn == "postgresql://user:***@db.example.com:5432/app"
     assert settings.nats.servers == ["nats://n1:4222", "nats://n2:4222"]

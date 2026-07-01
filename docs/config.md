@@ -17,7 +17,9 @@
 - 민감정보는 Secret Manager 또는 배포 플랫폼의 secret 기능으로 주입하세요.
 - 운영 환경에서는 TLS 검증을 기본 활성화하세요.
 - 서비스별 timeout/retry는 공통 전역값이 아니라 각 서비스 환경변수로 관리합니다.
-- `load_settings(env, services={...})`를 사용하면 필요한 서비스만 선택적으로 검증/로딩할 수 있습니다.
+- 서비스별 config entrypoint(`load_common_config`, `require_keycloak_config`, `require_langfuse_config`, `PostgresConfig`, `SqliteConfig` 등)를 사용하면 aggregate `ServiceConfigs` 없이도 필요한 설정만 검증/로딩할 수 있습니다.
+- `load_service_configs(services={...})`를 사용하면 필요한 서비스만 선택적으로 검증/로딩할 수 있습니다.
+- `load_settings(services={...})`는 기존 호출부를 위한 deprecated compatibility alias입니다.
 
 ## 2. 공통 환경변수
 

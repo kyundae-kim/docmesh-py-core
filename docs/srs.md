@@ -49,7 +49,7 @@
 
 1. Keycloak, PostgreSQL, SQLite, MinIO, Milvus, Ollama, Langfuse, NATS 클라이언트 생성을 지원해야 한다.
 2. 각 서비스는 독립적으로 생성 가능해야 한다.
-3. `ServiceFactoryRegistry.create_client()`는 서비스별 SDK 클라이언트 또는 래퍼를 생성해야 한다.
+3. 서비스별 `create_*_client()` 함수는 서비스별 SDK 클라이언트 또는 래퍼를 생성해야 한다.
 4. NATS는 builder를 반환하고 실제 네트워크 연결은 `connect()`/`ping()`/`check()` 호출 시 수행해야 한다.
 5. 다른 서비스는 팩토리 생성 시 SDK 클라이언트 객체를 초기화할 수 있다.
 6. 필요한 서비스만 선택 생성 가능해야 한다.
@@ -85,7 +85,7 @@
 공개 오류 모델 최소 범위:
 
 - `ConfigError`
-- `ServiceClientError`, `ServiceClientWrapperError`, `UnsupportedServiceError`
+- `ServiceClientError`, `ServiceClientWrapperError`
 - `HealthCheckError`
 - `KeycloakTokenConfigurationError`, `KeycloakTokenAuthenticationError`, `KeycloakTokenTemporaryError`, `KeycloakTokenError`
 - `TokenValidationError`

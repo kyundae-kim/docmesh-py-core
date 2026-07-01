@@ -1,42 +1,66 @@
 # docmesh-py-core API Reference
 
-이 문서는 `docmesh-py-core`의 **공개 API 레퍼런스**입니다.
+이 문서는 `docmesh-py-core`의 공개 API 레퍼런스입니다.
 
-- 사용 흐름을 먼저 알고 싶다면 [README](../README.md)를 읽으세요.
-- 환경변수와 설정 규칙은 [설정 가이드](./config.md)를 참고하세요.
-- 실제 통합 예시는 [examples.md](./examples.md)를 참고하세요.
+- 사용 흐름은 [README](../README.md)
+- 환경변수/설정 규칙은 [config.md](./config.md)
+- 실제 통합 예시는 [examples.md](./examples.md)
 
 ## 1. Public imports
 
-패키지 루트에서 바로 import 가능한 공개 API:
+패키지 루트에서 바로 import 가능한 대표 공개 API:
 
 ```python
 from docmesh_py_core import (
     AccessTokenResult,
     AuthenticatedUser,
+    CommonConfig,
     ConfigError,
-    configure_logging,
     HealthCheckError,
     KeycloakAuthService,
+    KeycloakConfig,
     KeycloakProvisioner,
     KeycloakTokenAuthenticationError,
     KeycloakTokenConfigurationError,
     KeycloakTokenError,
     KeycloakTokenTemporaryError,
+    LangfuseConfig,
+    MinioConfig,
+    MilvusConfig,
     NatsConnectionBuilder,
+    NatsConfig,
+    OllamaConfig,
+    PostgresConfig,
     ServiceClientError,
     ServiceClientWrapper,
     ServiceClientWrapperError,
-    ServiceFactoryRegistry,
-    Settings,
+    ServiceConfigs,
     SqliteConfig,
     TokenValidationError,
-    UnsupportedServiceError,
+    apply_langfuse_defaults,
     build_service_log_event,
     check_all_services,
+    close_service_clients,
+    create_keycloak_client,
+    create_langfuse_client,
+    create_milvus_client,
+    create_minio_client,
+    create_nats_client,
+    create_ollama_client,
+    create_postgres_client,
+    create_sqlite_client,
+    load_common_config,
+    load_service_configs,
     load_settings,
     mask_sensitive_value,
+    require_keycloak_config,
+    require_langfuse_config,
+    require_milvus_config,
+    require_minio_config,
+    require_nats_config,
+    require_ollama_config,
     retry_call,
+    validate_runtime_security,
 )
 ```
 
@@ -47,515 +71,192 @@ from docmesh_py_core import (
 대부분의 소비 애플리케이션은 아래 순서로 SDK를 사용합니다.
 
 1. 환경변수 준비
-2. `load_settings(env)` 호출
-3. `ServiceFactoryRegistry(settings)` 생성
-4. 필요한 서비스만 `create_client()`로 획득
-5. 시작 시점에 `check()` 또는 `check_all_services()` 실행
-6. 종료 시 `close_all()` 호출
+2. `load_common_config()` 또는 `load_service_configs()` 호출
+3. 필요한 서비스만 `create_*_client()`로 조립
+4. 시작 시점에 `check()` 또는 `check_all_services()` 실행
+5. 종료 시 `close_service_clients()` 또는 개별 `close()` 호출
 
 주의:
 
 - `nats`만 예외적으로 `NatsConnectionBuilder`를 반환하며, 실제 연결은 `await connect()/ping()/check()`에서 일어납니다.
 - `langfuse`는 `LANGFUSE_ENABLED=false`면 `None`이 될 수 있으므로 소비 코드에서 분기 처리가 필요합니다.
 
-## 2. Settings API
+## 2. Service config API
 
-### `load_settings(env, *, services=None) -> Settings`
+### 권장 public config entrypoint
 
-환경변수 매핑에서 설정을 읽고 검증합니다.
+서비스별 설정만 필요하면 aggregate `ServiceConfigs`보다 서비스별 config entrypoint를 우선 사용하는 것을 권장합니다.
+
+- 공통: `load_common_config() -> CommonConfig`
+- Keycloak: `require_keycloak_config()`
+- PostgreSQL: `PostgresConfig()`
+- SQLite: `SqliteConfig()`
+- MinIO: `require_minio_config()`
+- Milvus: `require_milvus_config()`
+- Ollama: `require_ollama_config()`
+- Langfuse: `require_langfuse_config(common=...)`
+- NATS: `require_nats_config()`
+
+규칙:
+
+- `require_*`는 필수 설정이 없으면 `ConfigError`를 발생시킵니다.
+- `PostgresConfig()`와 `SqliteConfig()`는 필수 서비스 설정 모델로 직접 생성합니다.
+- `load_service_configs()`는 선택된 `postgres`/`sqlite`/`langfuse`도 필수 서비스로 검증합니다.
+- `load_settings()`는 기존 호출부를 위한 compatibility alias입니다.
+
+예시:
+
+```python
+from docmesh_py_core import KeycloakAuthService, load_common_config, require_keycloak_config
+
+common = load_common_config()
+keycloak = require_keycloak_config()
+
+assert common.env in {"development", "integration", "production"}
+
+auth = KeycloakAuthService(keycloak)
+```
+
+### `load_service_configs(*, services=None) -> ServiceConfigs`
+
+현재 프로세스 환경변수에서 설정을 읽고 검증합니다.
 
 주요 동작:
 
 - `services=None`이면 지원 서비스 전체를 검증합니다.
 - `services={...}`를 주면 지정한 서비스만 검증하고, 나머지 필드는 `None`으로 둡니다.
-- 선택적 설정(`postgres`, `sqlite`)은 선택된 상태에서도 관련 env가 없으면 `None`입니다.
+- 선택된 서비스에서 필수 env가 없으면 `ConfigError`가 발생합니다.
 - 검증 실패 시 `ConfigError`가 발생합니다.
 - `LANGFUSE_ENVIRONMENT`가 비어 있으면 `DOCMESH_ENV` 값을 상속합니다.
-
-입력:
-
-- `env`: `Mapping[str, str]` 형태의 환경변수 집합
-- `services`: 선택적으로 로드할 서비스명 집합 (`keycloak`, `postgres`, `sqlite`, `minio`, `milvus`, `ollama`, `langfuse`, `nats`)
-
-대표 예외:
-
-- `ConfigError`: 필수값 누락, bool/정수 파싱 실패, 범위 위반, 상호배타 검증 실패
-
-예시:
-
-```python
-from os import environ
-from docmesh_py_core import load_settings
-
-settings = load_settings(environ)
-print(settings.common.env)
-```
 
 partial loading 예시:
 
 ```python
-from os import environ
+from docmesh_py_core import create_nats_client, create_sqlite_client, load_service_configs
 
-from docmesh_py_core import ServiceFactoryRegistry, load_settings
-
-settings = load_settings(
-    environ,
+settings = load_service_configs(
     services={"sqlite", "nats"},
 )
-registry = ServiceFactoryRegistry(settings)
 
-sqlite = registry.create_client("sqlite")
-builder = registry.create_client("nats")
+sqlite = create_sqlite_client(settings.sqlite)
+builder = create_nats_client(settings.nats)
 
 assert settings.keycloak is None
 assert settings.minio is None
 ```
 
-### `Settings`
+### `ServiceConfigs`
 
-패키지의 최상위 설정 객체입니다.
+패키지의 서비스 묶음 dataclass입니다.
 
 하위 설정 필드:
 
 - `settings.common`
 - `settings.keycloak`
-- `settings.postgres` (`None` 가능)
-- `settings.sqlite` (`None` 가능)
+- `settings.postgres` (`services`에 선택되지 않으면 `None`)
+- `settings.sqlite` (`services`에 선택되지 않으면 `None`)
 - `settings.minio`
 - `settings.milvus`
 - `settings.ollama`
 - `settings.langfuse`
 - `settings.nats`
 
-환경변수 계약은 [config.md](./config.md)를 참고하세요.
+## 3. Client creation API
 
-### `SqliteConfig`
+현재 권장 경로는 서비스별 `create_*_client()` 함수입니다.
 
-SQLite 전용 설정 객체입니다.
+### `create_keycloak_client(config: KeycloakConfig) -> ServiceClientWrapper`
 
-대표 항목:
+- 내부적으로 `KeycloakAuthService(config)`를 생성합니다.
+- `check()`는 access token fetch를 사용합니다.
 
-- `path`
-- `readonly`
-- `enable_wal`
-- `busy_timeout_ms`
+### `create_postgres_client(config: PostgresConfig) -> ServiceClientWrapper`
 
-## 3. Client factory API
+- SQLAlchemy engine을 생성합니다.
+- `check()`는 `SELECT 1` 실행입니다.
+- `close()`는 내부 `dispose()`를 호출합니다.
 
-### `ServiceFactoryRegistry(settings)`
+### `create_sqlite_client(config: SqliteConfig) -> ServiceClientWrapper`
 
-외부 서비스 클라이언트를 생성하는 진입점입니다.
+- SQLite engine을 생성합니다.
+- `busy_timeout_ms`, `enable_wal`, `readonly`를 반영합니다.
+- `check()`는 `SELECT 1` 실행입니다.
 
-주요 메서드:
+### `create_minio_client(config: MinioConfig) -> ServiceClientWrapper`
 
-- `create_client(service_name)`
-- `create_clients(services)`
-- `close_all()`
+- `check()`는 `list_buckets()`를 호출합니다.
 
-지원 서비스명:
+### `create_milvus_client(config: MilvusConfig) -> ServiceClientWrapper`
 
-- `keycloak`
-- `postgres`
-- `sqlite`
-- `minio`
-- `milvus`
-- `ollama`
-- `langfuse`
-- `nats`
+- `check()`는 `list_collections()`를 호출합니다.
 
-개발 시 알아둘 점:
+### `create_ollama_client(config: OllamaConfig) -> ServiceClientWrapper`
 
-- `create_client()`는 동일 서비스에 대해 이미 생성한 클라이언트를 재사용합니다.
-- `postgres`와 `sqlite`는 내부적으로 SQLAlchemy Engine 기반 객체를 래핑합니다.
-- `langfuse`는 설정상 비활성화되면 `None`이 반환될 수 있습니다.
-- `nats`는 다른 서비스와 달리 sync wrapper가 아니라 async builder입니다.
+- `check()`는 `ps()`를 호출합니다.
+
+### `create_langfuse_client(config: LangfuseConfig) -> ServiceClientWrapper | None`
+
+- `LANGFUSE_ENABLED=false`면 `None`을 반환합니다.
+- 활성화 시 `check()`는 `auth_check()`를 호출합니다.
+
+### `create_nats_client(config: NatsConfig) -> NatsConnectionBuilder`
+
+- 즉시 연결하지 않습니다.
+- 실제 네트워크 연결은 `await builder.connect()` / `await builder.check()`에서 일어납니다.
 
 예시:
 
 ```python
-registry = ServiceFactoryRegistry(settings)
-postgres = registry.create_client("postgres")
+from docmesh_py_core import create_postgres_client, load_service_configs
+
+settings = load_service_configs(services={"postgres"})
+postgres = create_postgres_client(settings.postgres)
 postgres.check()
-registry.close_all()
+postgres.close()
 ```
 
-### `create_client(service_name) -> ServiceClientWrapper | NatsConnectionBuilder | None`
-
-단일 서비스 클라이언트를 생성하거나 재사용합니다.
-
-입력:
-
-- `service_name`: `keycloak`, `postgres`, `sqlite`, `minio`, `milvus`, `ollama`, `langfuse`, `nats`
-
-반환:
-
-- 대부분 서비스: `ServiceClientWrapper`
-- `nats`: `NatsConnectionBuilder`
-- `langfuse`: 비활성화 시 `None`
-
-대표 예외:
-
-- `UnsupportedServiceError`: 지원하지 않는 서비스명
-
-### `create_clients(services) -> dict[str, Any]`
-
-여러 서비스 클라이언트를 한 번에 생성합니다.
-
-입력:
-
-- `services`: 서비스명 iterable
-
-반환:
-
-- 서비스명 → 클라이언트/빌더 매핑
-
-### `close_all() -> None`
-
-지금까지 생성한 모든 클라이언트의 종료 훅을 호출합니다.
-
-주의:
-
-- `ServiceClientWrapper`는 `close_fn`이 있으면 그 함수를 우선 사용합니다.
-- NATS builder 자체는 장기 연결을 보관하지 않으므로 `check()` 내부에서 연결 후 정리됩니다.
-
-반환 타입 요약:
-
-| 서비스 | 반환값 |
-| --- | --- |
-| `keycloak` | `ServiceClientWrapper` |
-| `postgres` | `ServiceClientWrapper` |
-| `sqlite` | `ServiceClientWrapper` |
-| `minio` | `ServiceClientWrapper` |
-| `milvus` | `ServiceClientWrapper` |
-| `ollama` | `ServiceClientWrapper` |
-| `langfuse` | `ServiceClientWrapper \| None` |
-| `nats` | `NatsConnectionBuilder` |
-
-대표 예외:
-
-- `UnsupportedServiceError`
-- `ServiceClientWrapperError`
-- `ServiceClientError`
+## 4. 공통 wrapper / helper API
 
 ### `ServiceClientWrapper`
 
-공통 `ping()` / `check()` / `close()` 인터페이스를 제공하는 래퍼입니다.
+서비스 클라이언트를 표준 인터페이스로 감싸는 wrapper입니다.
 
-핵심 메서드:
+주요 메서드:
 
-- `ping()` — 내부 healthcheck 호출, 실패 시 `ServiceClientWrapperError`로 변환
-- `check()` — `ping()`의 별칭
-- `close()` — 서비스별 close/dispose/flush 호출
+- `check()` / `ping()`
+- `close()`
+- `__getattr__()` 위임
 
-실무 팁:
+### `close_service_clients(clients: Iterable[Any]) -> None`
 
-- SQLAlchemy 기반 서비스(`postgres`, `sqlite`)는 wrapper를 통해 `connect()`를 그대로 사용할 수 있습니다.
-- healthcheck 실패 예외는 서비스명/operation/error_type 정보를 포함한 래퍼 오류로 표준화됩니다.
-
-일반적인 사용 예:
-
-```python
-client = registry.create_client("sqlite")
-client.check()
-client.close()
-```
-
-기본 `check()` 동작:
-
-| 서비스 | 기본 확인 |
-| --- | --- |
-| Keycloak | `fetch_access_token()` |
-| PostgreSQL | `SELECT 1` |
-| SQLite | `SELECT 1` |
-| MinIO | `list_buckets()` |
-| Milvus | `list_collections()` |
-| Ollama | `ps()` |
-| Langfuse | `auth_check()` |
-
-### `NatsConnectionBuilder`
-
-NATS 연결용 비동기 builder입니다.
-
-- `create_client("nats")`의 반환값
-- 실제 연결은 `await connect()`, `await ping()`, `await check()`로 수행
-- `connect_kwargs` 프로퍼티로 최종 연결 인자를 확인 가능
-
-개발 시 알아둘 점:
-
-- 장기 연결을 보관하는 커넥션 풀 객체가 아니라 "연결 시도용 builder"입니다.
-- `check()`는 연결 후 `flush()`를 호출하고 바로 연결을 정리합니다.
-- 애플리케이션이 실제 지속 연결을 원하면 `await connect()` 결과를 직접 관리해야 합니다.
+여러 wrapper/client에 대해 `close()`를 순회 호출합니다. `None` 값은 무시합니다.
 
 예시:
 
 ```python
-import asyncio
+from docmesh_py_core import close_service_clients
 
-builder = registry.create_client("nats")
-asyncio.run(builder.check())
+close_service_clients([postgres, minio, langfuse])
 ```
 
-## 4. Health API
+### `ServiceClientError`
 
-### `check_all_services(service_checks, required_services=None, parallel=False)`
+서비스 생성/헬스체크 표준 오류의 베이스 타입입니다.
 
-여러 서비스의 헬스체크를 집계 실행합니다.
+### `ServiceClientWrapperError`
 
-입력:
+`ServiceClientWrapper.check()`에서 발생한 오류를 표준화한 타입입니다.
 
-- `service_checks`: 서비스명 → 인자 없는 callable 매핑
-- `required_services`: 실패 시 즉시 예외를 발생시킬 서비스 집합
-- `parallel`: `True`면 thread pool 기반 병렬 실행
+## 5. Health / security / retry API
 
-반환:
+### `check_all_services(checks, required_services=None, parallel=False)`
 
-- `HealthCheckResult.ok`
-- `HealthCheckResult.services`
+서비스 헬스체크 함수를 모아 실행합니다.
 
-개발 시 알아둘 점:
+### `mask_sensitive_value(value: str | None) -> str | None`
 
-- `parallel=False`에서는 순차 실행 중 required 서비스 실패 시 즉시 `HealthCheckError`를 발생시킵니다.
-- `parallel=True`에서는 전체 결과를 수집한 뒤 required 서비스 실패 여부를 판단합니다.
-- 오류 문자열은 `mask_sensitive_value()`를 거쳐 민감정보를 숨깁니다.
+비밀번호, bearer token, secret 같은 민감정보를 로그 친화적으로 마스킹합니다.
 
-예시:
+### `retry_call(...)`
 
-```python
-result = check_all_services(
-    {
-        "postgres": postgres.check,
-        "minio": minio.check,
-    },
-    required_services={"postgres"},
-    parallel=True,
-)
-```
-
-대표 예외:
-
-- `HealthCheckError`: 필수 서비스 실패 시
-
-## 5. Keycloak API
-
-### `KeycloakAuthService(settings, *, http_client=None, verification_key=None, allowed_algorithms=None, logger=None, event_logger=None, timer=time.perf_counter, sleep=time.sleep, current_time=time.time)`
-
-Keycloak 인증 관련 고수준 진입점입니다.
-
-제공 기능:
-
-- Access Token 획득
-- JWT 검증
-- 사용자 정보 및 역할 추출
-
-참고:
-
-- 기본 허용 알고리즘은 `['HS256']`입니다.
-- RS256/JWKS 검증을 사용하려면 `allowed_algorithms`에 `RS256`을 포함해야 합니다.
-- `verification_key`는 HS256 검증 시 필요합니다.
-
-### `fetch_access_token(scope=None, username=None, password=None) -> AccessTokenResult`
-
-Keycloak token endpoint에서 access token을 요청합니다.
-
-기본 특성:
-
-- 기본 grant: `client_credentials`
-- 선택적 `scope` 전달 지원
-- 명시적 설정 시 `password` grant 사용 가능
-- `password` grant에서는 함수 인자 `username`, `password`를 사용
-- `max_retries + 1` 회까지 재시도 시도
-
-입력:
-
-- `scope`: 선택적 OAuth scope override
-- `username`: `password` grant에서 사용할 사용자명
-- `password`: `password` grant에서 사용할 비밀번호
-
-반환 필드:
-
-- `access_token`
-- `token_type`
-- `expires_in`
-- `refresh_token`
-- `scope`
-
-대표 예외:
-
-- `KeycloakTokenConfigurationError`
-- `KeycloakTokenAuthenticationError`
-- `KeycloakTokenTemporaryError`
-- `KeycloakTokenError`
-
-개발 시 알아둘 점:
-
-- HTTP `400/401/403`은 인증 오류로 분류됩니다.
-- HTTP `408/429` 및 `5xx`는 일시적 오류로 분류되어 재시도 대상이 됩니다.
-- 응답 JSON에 `access_token`, `token_type`, `expires_in`이 없으면 `KeycloakTokenError`가 발생합니다.
-- `password` grant인데 `username` 또는 `password` 인자가 빠지면 `KeycloakTokenConfigurationError`가 발생합니다.
-
-### `extract_user_info(token) -> AuthenticatedUser`
-
-JWT를 검증한 뒤 표준 사용자 정보를 반환합니다.
-
-입력:
-
-- raw JWT 문자열
-- `Bearer <token>` 형식 문자열
-
-검증 항목:
-
-- 서명
-- 만료 시간
-- issuer
-- 선택적 audience
-- 허용 알고리즘
-
-추가 동작:
-
-- subject는 `sub` 우선, 없으면 `jti`를 대체 식별자로 사용합니다.
-- `realm_access.roles`와 `resource_access.*.roles`를 각각 `realm_roles`, `client_roles`로 분리합니다.
-
-반환 필드:
-
-- `sub`
-- `preferred_username`
-- `email`
-- `given_name`
-- `family_name`
-- `name`
-- `realm_roles`
-- `client_roles`
-- `claims`
-
-대표 예외:
-
-- `TokenValidationError`
-
-개발 시 알아둘 점:
-
-- 기본 설정만 사용하면 HS256 검증만 허용됩니다.
-- Keycloak의 일반적인 RS256 토큰을 검증하려면 `allowed_algorithms=['RS256']` 구성이 필요합니다.
-- RS256 검증 시 JWKS는 `KEYCLOAK_JWKS_CACHE_TTL_SECONDS` 기준으로 캐시됩니다.
-
-### `AccessTokenResult`
-
-토큰 응답 객체입니다.
-
-대표 필드:
-
-- `access_token`
-- `token_type`
-- `expires_in`
-- `refresh_token`
-- `scope`
-
-### `AuthenticatedUser`
-
-검증된 토큰에서 추출한 사용자 정보 객체입니다.
-
-대표 필드:
-
-- `sub`
-- `preferred_username`
-- `email`
-- `given_name`
-- `family_name`
-- `name`
-- `realm_roles`
-- `client_roles`
-- `claims`
-
-### `KeycloakProvisioner(settings, *, admin_client)`
-
-Keycloak Realm/Client/Role을 선언형으로 생성/갱신하는 프로비저너입니다.
-
-주요 특징:
-
-- 멱등 실행
-- Dry-run 지원
-- 생성/갱신/변경 없음/실패 구분
-- 선언에서 제거된 리소스 자동 삭제 없음
-
-`admin_client`는 다음 계약을 만족해야 합니다.
-
-- `ensure_realm(config)`
-- `ensure_client(config)`
-- `ensure_realm_role(realm, role_name)`
-- `ensure_client_role(realm, client_id, role_name)`
-
-### `provision() -> ProvisioningResult`
-
-프로비저닝 결과는 다음 필드를 가집니다.
-
-- `created`
-- `updated`
-- `unchanged`
-- `failed`
-- `planned`
-- `dry_run`
-
-실무 팁:
-
-- dry-run이면 `planned`만 채워지고 실제 생성/갱신은 수행하지 않습니다.
-- 각 operation 실패는 전체 중단 대신 `failed`에 누적됩니다.
-- admin client는 호출 결과로 `created` / `updated` / 그 외(unchanged)를 반환해야 문서된 집계가 성립합니다.
-
-## 6. Utility API
-
-### `mask_sensitive_value(raw)`
-
-비밀번호, 토큰, secret, DSN/URI의 민감값을 마스킹합니다.
-
-### `configure_logging(level=None, log_path=None, force=False, env=None, env_key='DOCMESH_LOG_LEVEL')`
-
-공용 애플리케이션 로깅을 초기화합니다.
-
-주요 동작:
-
-- stderr stream handler 추가
-- `log_path` 지정 시 file handler 추가
-- `level`이 없으면 `env[env_key]`를 읽어 로그 레벨 결정
-- env 값도 없으면 기본 레벨은 `INFO`
-- 포맷에 `function_event`를 포함하여 `log_function_boundary` 이벤트명을 남김
-
-입력:
-
-- `level`: 명시 로그 레벨. 주면 env보다 우선
-- `log_path`: 파일 로그 경로
-- `force`: 기존 root logging 설정 재적용 여부
-- `env`: 사용할 환경변수 매핑. 기본값은 `os.environ`
-- `env_key`: 로그 레벨용 env 키. 기본값 `DOCMESH_LOG_LEVEL`
-
-대표 예외:
-
-- `ValueError`: env 로그 레벨 값이 유효하지 않을 때
-
-### `build_service_log_event(...)`
-
-서비스 연결/헬스체크/재시도 이벤트를 구조화된 `dict`로 생성합니다.
-
-표준 키:
-
-- `service`
-- `operation`
-- `outcome`
-- `host`
-- `latency_ms`
-- `retry_count`
-- `error`
-
-### `retry_call(operation, ..., retry_on, max_attempts, base_delay_seconds=0.5)`
-
-일시적 오류에 대해 동기 함수를 재시도합니다.
-
-주의:
-
-- `max_attempts < 1` 이면 `ValueError`를 발생시킵니다.
-- 재시도 간격은 `base_delay_seconds * 2 ** (attempt - 1)` 지수 백오프입니다.
-
-## 7. Public API usage notes
-
-- 일반 소비 코드는 패키지 루트 import를 권장합니다.
-- 서비스별 환경변수 활성화 규칙은 [config.md](./config.md)에서 확인하세요.
-- 실제 앱 코드 조합 예시는 [examples.md](./examples.md)를 참고하세요.
-- 워크플로우 중심 사용법은 [README](../README.md)를 먼저 읽는 것이 좋습니다.
+일시적 실패에 대한 재시도 유틸리티입니다.

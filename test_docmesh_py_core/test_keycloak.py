@@ -12,18 +12,25 @@ from unittest.mock import Mock
 
 import pytest
 
-from docmesh_py_core.config import load_settings
+from docmesh_py_core.config import require_keycloak_config as _runtime_require_keycloak_config
 from docmesh_py_core.keycloak import (
     KeycloakAuthService,
     KeycloakTokenTemporaryError,
     TokenValidationError,
 )
+from test_docmesh_py_core.conftest import apply_docmesh_env
 
 
 pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
 
 
-def _settings(*, audience: str | None = None):
+def require_keycloak_config(env: dict[str, str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return _runtime_require_keycloak_config()
+
+
+def _config(*, audience: str | None = None):
     env = {
         "KEYCLOAK_URL": "https://kc.example.com",
         "KEYCLOAK_REALM": "docmesh",
@@ -48,7 +55,7 @@ def _settings(*, audience: str | None = None):
     }
     if audience is not None:
         env["KEYCLOAK_AUDIENCE"] = audience
-    return load_settings(env)
+    return require_keycloak_config(env)
 
 
 def _encode_hs256_jwt(claims: dict[str, object], secret: str) -> str:
@@ -143,7 +150,7 @@ def test_keycloak_auth_service_fetches_access_token_with_client_credentials():
         },
     }
 
-    auth = KeycloakAuthService(_settings(), http_client=http_client)
+    auth = KeycloakAuthService(_config(), http_client=http_client)
 
     token = auth.fetch_access_token()
 
@@ -170,7 +177,7 @@ def test_keycloak_auth_service_treats_server_errors_as_temporary():
         "json": {"error_description": "token temporary outage"},
     }
 
-    auth = KeycloakAuthService(_settings(), http_client=http_client)
+    auth = KeycloakAuthService(_config(), http_client=http_client)
 
     with pytest.raises(KeycloakTokenTemporaryError):
         auth.fetch_access_token()
@@ -186,12 +193,12 @@ def test_keycloak_auth_service_accepts_password_grant_credentials_from_function_
             "expires_in": 300,
         },
     }
-    settings = _settings()
-    settings.keycloak.token_grant_type = "password"
-    settings.keycloak.token_username = None
-    settings.keycloak.token_password = None
+    config = _config()
+    config.token_grant_type = "password"
+    config.token_username = None
+    config.token_password = None
 
-    auth = KeycloakAuthService(settings, http_client=http_client)
+    auth = KeycloakAuthService(config, http_client=http_client)
 
     token = auth.fetch_access_token(username="alice", password="wonderland")
 
@@ -236,7 +243,7 @@ def test_keycloak_auth_service_extracts_standard_user_info_and_roles():
     )
 
     auth = KeycloakAuthService(
-        _settings(audience="docmesh-api"),
+        _config(audience="docmesh-api"),
         verification_key=signing_key,
         allowed_algorithms=["HS256"],
     )
@@ -287,7 +294,7 @@ def test_keycloak_auth_service_rejects_expired_not_yet_valid_or_invalid_audience
     )
 
     auth = KeycloakAuthService(
-        _settings(audience="docmesh-api"),
+        _config(audience="docmesh-api"),
         verification_key=signing_key,
         allowed_algorithms=["HS256"],
     )
@@ -317,7 +324,7 @@ def test_keycloak_auth_service_validates_rs256_tokens_against_jwks():
     )
 
     auth = KeycloakAuthService(
-        _settings(audience="docmesh-api"),
+        _config(audience="docmesh-api"),
         http_client=Mock(),
         allowed_algorithms=["RS256"],
     )
@@ -346,7 +353,7 @@ def test_keycloak_auth_service_refreshes_jwks_after_cache_ttl_expires():
     current_time = Mock(side_effect=[100.0, 106.0, 106.0])
 
     auth = KeycloakAuthService(
-        _settings(audience="docmesh-api"),
+        _config(audience="docmesh-api"),
         http_client=http_client,
         allowed_algorithms=["RS256"],
         current_time=current_time,
@@ -384,7 +391,7 @@ def test_keycloak_auth_service_refreshes_jwks_when_kid_rotates():
     ]
 
     auth = KeycloakAuthService(
-        _settings(audience="docmesh-api"),
+        _config(audience="docmesh-api"),
         http_client=http_client,
         allowed_algorithms=["RS256"],
     )

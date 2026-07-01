@@ -2,18 +2,28 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import warnings
 from unittest.mock import Mock
 
 import pytest
 
-from docmesh_py_core.config import load_settings
+from docmesh_py_core.config import load_settings as _runtime_load_settings
 from docmesh_py_core.function_logging import _resolve_log_level, configure_logging, log_function_boundary
 from docmesh_py_core.keycloak import KeycloakAuthService, KeycloakTokenTemporaryError
 from docmesh_py_core.observability import build_service_log_event
 from docmesh_py_core.retry import retry_call
+from test_docmesh_py_core.conftest import apply_docmesh_env
 
 
 pytestmark = [pytest.mark.unit]
+
+
+def load_settings(env: dict[str, str] | None = None, *, services: set[str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return _runtime_load_settings(services=services)
 
 
 class _FakeClock:
@@ -48,7 +58,8 @@ def _settings(*, max_retries: int = 3):
             "OLLAMA_HOST": "http://ollama.example.com:11434",
             "LANGFUSE_ENABLED": "false",
             "NATS_SERVERS": "nats://n1:4222",
-        }
+        },
+        services={"keycloak"},
     )
 
 
@@ -121,7 +132,7 @@ def test_keycloak_auth_service_retries_temporary_token_failures_and_logs_events(
     clock = _FakeClock([10.0, 10.1, 20.0, 20.25, 30.0, 30.4])
 
     auth = KeycloakAuthService(
-        _settings(max_retries=2),
+        _settings(max_retries=2).keycloak,
         http_client=http_client,
         logger=logger,
         event_logger=event_logger,

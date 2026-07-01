@@ -1,7 +1,8 @@
 from __future__ import annotations
-from typing import Annotated, Any, Mapping, TypeVar
-import os
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from dataclasses import dataclass
+import warnings
+from typing import Annotated, Any, TypeVar
+from pydantic import Field, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from .function_logging import log_function_boundary
 
@@ -308,25 +309,22 @@ class NatsConfig(DocmeshBaseSettings):
             raise ValueError('NATS_USER and NATS_PASSWORD must be provided together')
         return self
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra='ignore', case_sensitive=False)
-    common: CommonConfig = Field(default_factory=lambda: CommonConfig())
-    keycloak: KeycloakConfig | None = Field(default_factory=lambda: KeycloakConfig())
-    postgres: PostgresConfig | None = Field(default_factory=lambda: _default_optional_settings(PostgresConfig))
-    sqlite: SqliteConfig | None = Field(default_factory=lambda: _default_optional_settings(SqliteConfig))
-    minio: MinioConfig | None = Field(default_factory=lambda: MinioConfig())
-    milvus: MilvusConfig | None = Field(default_factory=lambda: MilvusConfig())
-    ollama: OllamaConfig | None = Field(default_factory=lambda: OllamaConfig())
-    langfuse: LangfuseConfig | None = Field(default_factory=lambda: LangfuseConfig())
-    nats: NatsConfig | None = Field(default_factory=lambda: NatsConfig())
+@dataclass
+class ServiceConfigs:
+    common: CommonConfig
+    keycloak: KeycloakConfig | None = None
+    postgres: PostgresConfig | None = None
+    sqlite: SqliteConfig | None = None
+    minio: MinioConfig | None = None
+    milvus: MilvusConfig | None = None
+    ollama: OllamaConfig | None = None
+    langfuse: LangfuseConfig | None = None
+    nats: NatsConfig | None = None
 
-    @model_validator(mode='after')
+    @property
     @log_function_boundary()
-    def apply_cross_service_defaults(self) -> 'Settings':
-        if self.langfuse is not None and self.langfuse.environment is None:
-            self.langfuse.environment = self.common.env
-        _validate_security(self)
-        return self
+    def docmesh_env(self) -> str:
+        return self.common.env
 
 @log_function_boundary()
 def _normalize_requested_services(services: set[str] | None) -> set[str]:
@@ -337,16 +335,6 @@ def _normalize_requested_services(services: set[str] | None) -> set[str]:
     if unknown:
         raise ConfigError(f'Unsupported services requested: {", ".join(unknown)}')
     return normalized
-
-@log_function_boundary()
-def _settings_kwargs_from_env(settings_cls: type[SettingsT], env: Mapping[str, str]) -> dict[str, Any]:
-    prefix = settings_cls.model_config.get('env_prefix', '')
-    kwargs: dict[str, Any] = {}
-    for field_name in settings_cls.model_fields:
-        env_key = f'{prefix}{field_name.upper()}'
-        if env_key in env:
-            kwargs[field_name] = env[env_key]
-    return kwargs
 
 @log_function_boundary()
 def _rewrite_validation_message(settings_cls: type[SettingsT], exc: ValidationError) -> str:
@@ -366,44 +354,67 @@ def _rewrite_validation_message(settings_cls: type[SettingsT], exc: ValidationEr
     return '\n'.join(dict.fromkeys(rewritten_lines))
 
 @log_function_boundary()
-def _build_settings(settings_cls: type[SettingsT], env: Mapping[str, str]) -> SettingsT:
+def _load_runtime_settings(settings_cls: type[SettingsT]) -> SettingsT:
     try:
-        return settings_cls(_env_prefix='__DOCMESH_DISABLED__', **_settings_kwargs_from_env(settings_cls, env))
+        return settings_cls()
     except ValidationError as exc:
         raise ConfigError(_rewrite_validation_message(settings_cls, exc)) from exc
 
 @log_function_boundary()
-def _has_any_env_value(settings_cls: type[SettingsT], env: Mapping[str, str]) -> bool:
-    prefix = settings_cls.model_config.get('env_prefix', '')
-    return any((key.startswith(prefix) and bool(str(value).strip()) for key, value in env.items()))
+def load_common_config() -> CommonConfig:
+    return _load_runtime_settings(CommonConfig)
 
 @log_function_boundary()
-def _build_optional_settings(settings_cls: type[SettingsT], env: Mapping[str, str]) -> SettingsT | None:
-    if not _has_any_env_value(settings_cls, env):
-        return None
-    return _build_settings(settings_cls, env)
+def require_keycloak_config() -> KeycloakConfig:
+    return _load_runtime_settings(KeycloakConfig)
 
 @log_function_boundary()
-def _default_optional_settings(settings_cls: type[SettingsT]) -> SettingsT | None:
-    env = {key: value for key, value in os.environ.items() if value}
-    if not _has_any_env_value(settings_cls, env):
-        return None
-    return settings_cls()
+def require_minio_config() -> MinioConfig:
+    return _load_runtime_settings(MinioConfig)
 
 @log_function_boundary()
-def _validate_security(settings: Settings) -> None:
-    if settings.common.env.lower() not in {'production', 'prod'}:
+def require_milvus_config() -> MilvusConfig:
+    return _load_runtime_settings(MilvusConfig)
+
+@log_function_boundary()
+def require_ollama_config() -> OllamaConfig:
+    return _load_runtime_settings(OllamaConfig)
+
+@log_function_boundary()
+def require_langfuse_config(*, common: CommonConfig | None=None) -> LangfuseConfig:
+    langfuse = _load_runtime_settings(LangfuseConfig)
+    return apply_langfuse_defaults(common or load_common_config(), langfuse)
+
+@log_function_boundary()
+def require_nats_config() -> NatsConfig:
+    return _load_runtime_settings(NatsConfig)
+
+@log_function_boundary()
+def apply_langfuse_defaults(common: CommonConfig, langfuse: LangfuseConfig | None) -> LangfuseConfig | None:
+    if langfuse is not None and langfuse.environment is None:
+        langfuse.environment = common.env
+    return langfuse
+
+@log_function_boundary()
+def validate_runtime_security(common: CommonConfig, *, keycloak: KeycloakConfig | None=None, minio: MinioConfig | None=None, milvus: MilvusConfig | None=None) -> None:
+    if common.env.lower() not in {'production', 'prod'}:
         return
-    if ((settings.keycloak is not None and (not settings.keycloak.verify_ssl)) or (settings.minio is not None and (not settings.minio.secure)) or (settings.milvus is not None and (not settings.milvus.secure))):
+    if ((keycloak is not None and (not keycloak.verify_ssl)) or (minio is not None and (not minio.secure)) or (milvus is not None and (not milvus.secure))):
         raise ConfigError('SSL verification cannot be disabled in production')
 
 @log_function_boundary()
-def load_settings(env: Mapping[str, str], *, services: set[str] | None=None) -> Settings:
-    common = _build_settings(CommonConfig, env)
+def load_service_configs(*, services: set[str] | None=None) -> ServiceConfigs:
+    common = load_common_config()
     selected_services = _normalize_requested_services(services)
-    langfuse_env = dict(env)
-    langfuse_env.setdefault('LANGFUSE_ENVIRONMENT', common.env)
-    try:
-        return Settings(common=common, keycloak=(_build_settings(KeycloakConfig, env) if 'keycloak' in selected_services else None), postgres=(_build_optional_settings(PostgresConfig, env) if 'postgres' in selected_services else None), sqlite=(_build_optional_settings(SqliteConfig, env) if 'sqlite' in selected_services else None), minio=(_build_settings(MinioConfig, env) if 'minio' in selected_services else None), milvus=(_build_settings(MilvusConfig, env) if 'milvus' in selected_services else None), ollama=(_build_settings(OllamaConfig, env) if 'ollama' in selected_services else None), langfuse=(_build_settings(LangfuseConfig, langfuse_env) if 'langfuse' in selected_services else None), nats=(_build_settings(NatsConfig, env) if 'nats' in selected_services else None))
-    except ValidationError as exc:
-        raise ConfigError(str(exc)) from exc
+    service_configs = ServiceConfigs(common=common, keycloak=(require_keycloak_config() if 'keycloak' in selected_services else None), postgres=(_load_runtime_settings(PostgresConfig) if 'postgres' in selected_services else None), sqlite=(_load_runtime_settings(SqliteConfig) if 'sqlite' in selected_services else None), minio=(require_minio_config() if 'minio' in selected_services else None), milvus=(require_milvus_config() if 'milvus' in selected_services else None), ollama=(require_ollama_config() if 'ollama' in selected_services else None), langfuse=(require_langfuse_config(common=common) if 'langfuse' in selected_services else None), nats=(require_nats_config() if 'nats' in selected_services else None))
+    validate_runtime_security(common, keycloak=service_configs.keycloak, minio=service_configs.minio, milvus=service_configs.milvus)
+    return service_configs
+
+@log_function_boundary()
+def load_settings(*, services: set[str] | None=None) -> ServiceConfigs:
+    warnings.warn(
+        'load_settings() is deprecated; use load_service_configs() instead.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return load_service_configs(services=services)
