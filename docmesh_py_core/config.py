@@ -272,6 +272,8 @@ class LangfuseConfig(DocmeshBaseSettings):
     @model_validator(mode='after')
     @log_function_boundary()
     def validate_required_when_enabled(self) -> 'LangfuseConfig':
+        if self.environment is None:
+            self.environment = CommonConfig().env
         if not self.enabled:
             return self
         required_fields = {self.env_key('host'): self.host, self.env_key('public_key'): self.public_key, self.env_key('secret_key'): self.secret_key}
@@ -361,41 +363,6 @@ def _load_runtime_settings(settings_cls: type[SettingsT]) -> SettingsT:
         raise ConfigError(_rewrite_validation_message(settings_cls, exc)) from exc
 
 @log_function_boundary()
-def load_common_config() -> CommonConfig:
-    return _load_runtime_settings(CommonConfig)
-
-@log_function_boundary()
-def require_keycloak_config() -> KeycloakConfig:
-    return _load_runtime_settings(KeycloakConfig)
-
-@log_function_boundary()
-def require_minio_config() -> MinioConfig:
-    return _load_runtime_settings(MinioConfig)
-
-@log_function_boundary()
-def require_milvus_config() -> MilvusConfig:
-    return _load_runtime_settings(MilvusConfig)
-
-@log_function_boundary()
-def require_ollama_config() -> OllamaConfig:
-    return _load_runtime_settings(OllamaConfig)
-
-@log_function_boundary()
-def require_langfuse_config(*, common: CommonConfig | None=None) -> LangfuseConfig:
-    langfuse = _load_runtime_settings(LangfuseConfig)
-    return apply_langfuse_defaults(common or load_common_config(), langfuse)
-
-@log_function_boundary()
-def require_nats_config() -> NatsConfig:
-    return _load_runtime_settings(NatsConfig)
-
-@log_function_boundary()
-def apply_langfuse_defaults(common: CommonConfig, langfuse: LangfuseConfig | None) -> LangfuseConfig | None:
-    if langfuse is not None and langfuse.environment is None:
-        langfuse.environment = common.env
-    return langfuse
-
-@log_function_boundary()
 def validate_runtime_security(common: CommonConfig, *, keycloak: KeycloakConfig | None=None, minio: MinioConfig | None=None, milvus: MilvusConfig | None=None) -> None:
     if common.env.lower() not in {'production', 'prod'}:
         return
@@ -404,17 +371,10 @@ def validate_runtime_security(common: CommonConfig, *, keycloak: KeycloakConfig 
 
 @log_function_boundary()
 def load_service_configs(*, services: set[str] | None=None) -> ServiceConfigs:
-    common = load_common_config()
+    common = _load_runtime_settings(CommonConfig)
     selected_services = _normalize_requested_services(services)
-    service_configs = ServiceConfigs(common=common, keycloak=(require_keycloak_config() if 'keycloak' in selected_services else None), postgres=(_load_runtime_settings(PostgresConfig) if 'postgres' in selected_services else None), sqlite=(_load_runtime_settings(SqliteConfig) if 'sqlite' in selected_services else None), minio=(require_minio_config() if 'minio' in selected_services else None), milvus=(require_milvus_config() if 'milvus' in selected_services else None), ollama=(require_ollama_config() if 'ollama' in selected_services else None), langfuse=(require_langfuse_config(common=common) if 'langfuse' in selected_services else None), nats=(require_nats_config() if 'nats' in selected_services else None))
+    service_configs = ServiceConfigs(common=common, keycloak=(_load_runtime_settings(KeycloakConfig) if 'keycloak' in selected_services else None), postgres=(_load_runtime_settings(PostgresConfig) if 'postgres' in selected_services else None), sqlite=(_load_runtime_settings(SqliteConfig) if 'sqlite' in selected_services else None), minio=(_load_runtime_settings(MinioConfig) if 'minio' in selected_services else None), milvus=(_load_runtime_settings(MilvusConfig) if 'milvus' in selected_services else None), ollama=(_load_runtime_settings(OllamaConfig) if 'ollama' in selected_services else None), langfuse=(_load_runtime_settings(LangfuseConfig) if 'langfuse' in selected_services else None), nats=(_load_runtime_settings(NatsConfig) if 'nats' in selected_services else None))
     validate_runtime_security(common, keycloak=service_configs.keycloak, minio=service_configs.minio, milvus=service_configs.milvus)
     return service_configs
 
-@log_function_boundary()
-def load_settings(*, services: set[str] | None=None) -> ServiceConfigs:
-    warnings.warn(
-        'load_settings() is deprecated; use load_service_configs() instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return load_service_configs(services=services)
+

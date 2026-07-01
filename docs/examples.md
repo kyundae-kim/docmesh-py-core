@@ -18,13 +18,13 @@ postgres.check()
 postgres.close()
 ```
 
-## 1.1 서비스별 loader를 직접 쓰는 예시
+## 1.1 서비스별 config class를 직접 쓰는 예시
 
 ```python
-from docmesh_py_core import KeycloakAuthService, load_common_config, require_keycloak_config
+from docmesh_py_core import CommonConfig, KeycloakAuthService, KeycloakConfig
 
-common = load_common_config()
-keycloak = require_keycloak_config()
+common = CommonConfig()
+keycloak = KeycloakConfig()
 
 auth = KeycloakAuthService(keycloak)
 token = auth.fetch_access_token()

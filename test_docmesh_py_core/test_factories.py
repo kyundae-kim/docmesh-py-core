@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import warnings
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -8,7 +7,7 @@ from sqlalchemy.engine import URL
 
 pytestmark = [pytest.mark.unit]
 
-from docmesh_py_core.config import load_settings as _runtime_load_settings
+from docmesh_py_core.config import load_service_configs as _runtime_load_service_configs
 from docmesh_py_core.factories import (
     NatsConnectionBuilder,
     ServiceClientWrapper,
@@ -26,16 +25,14 @@ from docmesh_py_core.factories import (
 from test_docmesh_py_core.conftest import apply_docmesh_env
 
 
-def load_settings(env: dict[str, str] | None = None, *, services: set[str] | None = None):
+def load_service_configs(env: dict[str, str] | None = None, *, services: set[str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            return _runtime_load_settings(services=services)
+        return _runtime_load_service_configs(services=services)
 
 
 def _sqlite_settings():
-    return load_settings(
+    return load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -55,7 +52,7 @@ def _sqlite_settings():
 
 
 def _settings():
-    return load_settings(
+    return load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -162,7 +159,7 @@ def test_create_keycloak_nats_and_langfuse_clients_use_service_specific_construc
 
 
 def test_create_langfuse_client_returns_none_when_disabled():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",

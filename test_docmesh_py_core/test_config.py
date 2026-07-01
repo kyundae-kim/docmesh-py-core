@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import warnings
-
+import docmesh_py_core as package_root
 import pytest
 
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings
 
 
@@ -21,22 +21,17 @@ from docmesh_py_core.config import (
     PostgresConfig,
     ServiceConfigs,
     SqliteConfig,
-    apply_langfuse_defaults,
     load_service_configs as _runtime_load_service_configs,
-    load_common_config as _runtime_load_common_config,
-    require_langfuse_config as _runtime_require_langfuse_config,
-    require_keycloak_config as _runtime_require_keycloak_config,
-    load_settings as _runtime_load_settings,
     validate_runtime_security,
 )
 from docmesh_py_core.security import mask_sensitive_value
 from test_docmesh_py_core.conftest import apply_docmesh_env
 
 
-def load_common_config(env: dict[str, str] | None = None) -> CommonConfig:
+def build_common_config(env: dict[str, str] | None = None) -> CommonConfig:
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        return _runtime_load_common_config()
+        return CommonConfig()
 
 
 def build_postgres_config(env: dict[str, str] | None = None):
@@ -45,24 +40,16 @@ def build_postgres_config(env: dict[str, str] | None = None):
         return PostgresConfig()
 
 
-def require_keycloak_config(env: dict[str, str] | None = None):
+def build_keycloak_config(env: dict[str, str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        return _runtime_require_keycloak_config()
+        return KeycloakConfig()
 
 
-def require_langfuse_config(env: dict[str, str] | None = None, *, common: CommonConfig | None = None):
+def build_langfuse_config(env: dict[str, str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        return _runtime_require_langfuse_config(common=common)
-
-
-def load_settings(env: dict[str, str] | None = None, *, services: set[str] | None = None):
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        apply_docmesh_env(monkeypatch, env or {})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            return _runtime_load_settings(services=services)
+        return LangfuseConfig()
 
 
 def load_service_configs(env: dict[str, str] | None = None, *, services: set[str] | None = None):
@@ -71,8 +58,8 @@ def load_service_configs(env: dict[str, str] | None = None, *, services: set[str
         return _runtime_load_service_configs(services=services)
 
 
-def test_load_common_config_defaults():
-    config = load_common_config({})
+def test_common_config_defaults():
+    config = build_common_config({})
 
     assert isinstance(config, CommonConfig)
     assert config.env == "development"
@@ -100,11 +87,11 @@ def test_sqlite_config_raises_when_required_env_is_missing():
     assert "SQLITE_PATH" in str(exc_info.value)
 
 
-def test_require_keycloak_config_raises_when_missing_required_env():
-    with pytest.raises(ConfigError) as exc_info:
-        require_keycloak_config({})
+def test_direct_keycloak_config_raises_validation_error_when_missing_required_env():
+    with pytest.raises(ValidationError) as exc_info:
+        build_keycloak_config({})
 
-    assert "KEYCLOAK_URL" in str(exc_info.value)
+    assert "url" in str(exc_info.value)
 
 
 def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):
@@ -120,28 +107,27 @@ def test_direct_basesettings_construction_reads_process_environment(monkeypatch:
     assert config.client_id == "ambient-client"
 
 
-def test_mapping_loader_ignores_process_environment(monkeypatch: pytest.MonkeyPatch):
+def test_direct_config_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("KEYCLOAK_URL", "https://ambient.example.com")
     monkeypatch.setenv("KEYCLOAK_REALM", "ambient")
     monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "ambient-client")
     monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "ambient-secret")
 
-    with pytest.raises(ConfigError) as exc_info:
-        require_keycloak_config({})
+    config = KeycloakConfig()
 
-    assert "KEYCLOAK_URL" in str(exc_info.value)
+    assert config.url == "https://ambient.example.com"
+    assert config.realm == "ambient"
+    assert config.client_id == "ambient-client"
 
 
-def test_require_langfuse_config_inherits_common_env():
-    common = load_common_config({"DOCMESH_ENV": "integration"})
-
-    config = require_langfuse_config(
+def test_langfuse_config_inherits_docmesh_env_when_environment_is_unset():
+    config = build_langfuse_config(
         {
+            "DOCMESH_ENV": "integration",
             "LANGFUSE_HOST": "https://langfuse.example.com",
             "LANGFUSE_PUBLIC_KEY": "public-key",
             "LANGFUSE_SECRET_KEY": "secret-key",
-        },
-        common=common,
+        }
     )
     assert config.environment == "integration"
 
@@ -153,14 +139,21 @@ def test_langfuse_config_raises_when_required_env_is_missing():
     assert "LANGFUSE_HOST" in str(exc_info.value)
 
 
-def test_apply_langfuse_defaults_sets_environment_from_common():
-    common = CommonConfig(env="production")
-    langfuse = LangfuseConfig(enabled=False)
+def test_langfuse_config_defaults_environment_to_development():
+    config = build_langfuse_config({"LANGFUSE_ENABLED": "false"})
 
-    updated = apply_langfuse_defaults(common, langfuse)
+    assert config.environment == "development"
 
-    assert updated is langfuse
-    assert updated.environment == "production"
+
+def test_package_root_does_not_export_removed_config_helpers():
+    assert "load_common_config" not in package_root.__all__
+    assert "load_settings" not in package_root.__all__
+    assert "require_keycloak_config" not in package_root.__all__
+    assert "require_langfuse_config" not in package_root.__all__
+    assert "require_minio_config" not in package_root.__all__
+    assert "require_milvus_config" not in package_root.__all__
+    assert "require_ollama_config" not in package_root.__all__
+    assert "require_nats_config" not in package_root.__all__
 
 
 def test_validate_runtime_security_rejects_disabled_ssl_in_production():
@@ -217,38 +210,9 @@ def test_load_settings_parses_required_services_and_defaults():
     assert settings.nats.servers == ["nats://n1:4222", "nats://n2:4222"]
 
 
-def test_load_settings_emits_deprecation_warning_and_preserves_behavior():
-    env = {
-        "KEYCLOAK_URL": "https://kc.example.com",
-        "KEYCLOAK_REALM": "docmesh",
-        "KEYCLOAK_CLIENT_ID": "backend",
-        "KEYCLOAK_CLIENT_SECRET": "client-secret",
-        "MINIO_ENDPOINT": "minio.example.com:9000",
-        "MINIO_ACCESS_KEY": "minio-access",
-        "MINIO_SECRET_KEY": "minio-secret",
-        "MILVUS_URI": "http://milvus.example.com:19530",
-        "OLLAMA_HOST": "http://ollama.example.com:11434",
-        "LANGFUSE_HOST": "https://langfuse.example.com",
-        "LANGFUSE_PUBLIC_KEY": "public-key",
-        "LANGFUSE_SECRET_KEY": "secret-key",
-        "NATS_SERVERS": "nats://n1:4222",
-    }
-
-    with pytest.MonkeyPatch.context() as monkeypatch:
-        apply_docmesh_env(monkeypatch, env)
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always", DeprecationWarning)
-            settings = _runtime_load_settings(services={"keycloak", "minio", "milvus", "ollama", "langfuse", "nats"})
-
-    assert isinstance(settings, ServiceConfigs)
-    assert any("load_settings() is deprecated" in str(item.message) for item in caught)
-    assert settings.keycloak is not None
-    assert settings.minio is not None
-
-
 def test_load_settings_rejects_blank_required_values():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "   ",
                 "KEYCLOAK_REALM": "docmesh",
@@ -273,7 +237,7 @@ def test_load_settings_rejects_blank_required_values():
 
 def test_load_settings_rejects_invalid_booleans_and_ranges():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -297,7 +261,7 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
     assert "KEYCLOAK_VERIFY_SSL" in str(exc_info.value)
 
     with pytest.raises(ConfigError) as range_exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -323,7 +287,7 @@ def test_load_settings_rejects_invalid_booleans_and_ranges():
 
 def test_keycloak_confidential_client_requires_client_secret():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -346,7 +310,7 @@ def test_keycloak_confidential_client_requires_client_secret():
 
 
 def test_keycloak_public_client_allows_missing_client_secret():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -371,7 +335,7 @@ def test_keycloak_public_client_allows_missing_client_secret():
 
 
 def test_keycloak_password_grant_does_not_require_username_and_password_at_settings_load_time():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -397,7 +361,7 @@ def test_keycloak_password_grant_does_not_require_username_and_password_at_setti
 
 def test_keycloak_provisioning_requires_single_admin_auth_mode():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -426,7 +390,7 @@ def test_keycloak_provisioning_requires_single_admin_auth_mode():
 
 
 def test_langfuse_disabled_makes_credentials_optional():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -450,7 +414,7 @@ def test_langfuse_disabled_makes_credentials_optional():
 
 
 def test_load_settings_supports_sqlite_without_postgres_configuration():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -477,7 +441,7 @@ def test_load_settings_supports_sqlite_without_postgres_configuration():
 
 
 def test_load_settings_can_limit_validation_to_selected_services():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "DOCMESH_ENV": "integration",
             "NATS_SERVERS": "nats://n1:4222",
@@ -498,7 +462,7 @@ def test_load_settings_can_limit_validation_to_selected_services():
 
 
 def test_load_settings_skips_cross_service_defaults_for_unselected_services():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "DOCMESH_ENV": "production",
             "LANGFUSE_ENABLED": "false",
@@ -514,7 +478,7 @@ def test_load_settings_skips_cross_service_defaults_for_unselected_services():
 
 
 def test_load_settings_parses_sqlite_boolean_and_range_fields():
-    settings = load_settings(
+    settings = load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",
@@ -543,7 +507,7 @@ def test_load_settings_parses_sqlite_boolean_and_range_fields():
 
 def test_load_settings_rejects_invalid_sqlite_values():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -565,7 +529,7 @@ def test_load_settings_rejects_invalid_sqlite_values():
     assert "SQLITE_READONLY" in str(exc_info.value)
 
     with pytest.raises(ConfigError) as range_exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -589,7 +553,7 @@ def test_load_settings_rejects_invalid_sqlite_values():
 
 def test_nats_allows_only_single_authentication_mode():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "KEYCLOAK_URL": "https://kc.example.com",
                 "KEYCLOAK_REALM": "docmesh",
@@ -618,7 +582,7 @@ def test_nats_allows_only_single_authentication_mode():
 
 def test_ssl_verification_cannot_be_disabled_in_production():
     with pytest.raises(ConfigError) as exc_info:
-        load_settings(
+        load_service_configs(
             {
                 "DOCMESH_ENV": "production",
                 "KEYCLOAK_URL": "https://kc.example.com",

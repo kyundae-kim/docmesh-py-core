@@ -6,7 +6,7 @@ from urllib.request import urlopen
 
 import pytest
 
-from docmesh_py_core.config import load_service_configs, require_keycloak_config
+from docmesh_py_core.config import KeycloakConfig, load_service_configs
 from docmesh_py_core.factories import (
     create_langfuse_client,
     create_milvus_client,
@@ -56,7 +56,7 @@ def test_keycloak_fetch_access_token_against_real_service(monkeypatch):
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
     activate_service_env(monkeypatch, "keycloak")
-    keycloak = require_keycloak_config()
+    keycloak = KeycloakConfig()
     auth = KeycloakAuthService(keycloak)
 
     fetch_kwargs = {}
@@ -80,7 +80,7 @@ def test_keycloak_extract_user_info_from_real_access_token(monkeypatch):
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
     activate_service_env(monkeypatch, "keycloak")
-    keycloak = require_keycloak_config()
+    keycloak = KeycloakConfig()
     auth = KeycloakAuthService(keycloak, allowed_algorithms=["RS256"])
 
     fetch_kwargs = {}

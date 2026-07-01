@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import warnings
 from unittest.mock import Mock
 
 import pytest
 
-from docmesh_py_core.config import load_settings as _runtime_load_settings
+from docmesh_py_core.config import load_service_configs as _runtime_load_service_configs
 from docmesh_py_core.keycloak import (
     KeycloakAuthService,
     KeycloakTokenAuthenticationError,
@@ -18,16 +17,14 @@ from test_docmesh_py_core.conftest import apply_docmesh_env
 pytestmark = [pytest.mark.unit, pytest.mark.security, pytest.mark.keycloak]
 
 
-def load_settings(env: dict[str, str] | None = None, *, services: set[str] | None = None):
+def load_service_configs(env: dict[str, str] | None = None, *, services: set[str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            return _runtime_load_settings(services=services)
+        return _runtime_load_service_configs(services=services)
 
 
 def _settings() -> object:
-    return load_settings(
+    return load_service_configs(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",

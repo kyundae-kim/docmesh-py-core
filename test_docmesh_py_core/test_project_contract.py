@@ -199,8 +199,9 @@ def test_package_root_exports_service_specific_config_api_and_docs_document_load
     config_doc = (PROJECT_ROOT / "docs" / "config.md").read_text(encoding="utf-8")
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
 
-    assert '"load_common_config"' in package_init
-    assert '"require_keycloak_config"' in package_init
+    assert '"load_common_config"' not in package_init
+    assert '"require_keycloak_config"' not in package_init
+    assert '"require_langfuse_config"' not in package_init
     assert '"load_postgres_config"' not in package_init
     assert '"require_postgres_config"' not in package_init
     assert '"require_sqlite_config"' not in package_init
@@ -209,6 +210,7 @@ def test_package_root_exports_service_specific_config_api_and_docs_document_load
     assert '"load_milvus_config"' not in package_init
     assert '"load_ollama_config"' not in package_init
     assert '"load_nats_config"' not in package_init
+    assert '"load_settings"' not in package_init
     assert '"create_postgres_client"' in package_init
     assert '"create_sqlite_client"' in package_init
     assert '"close_service_clients"' in package_init
@@ -220,6 +222,8 @@ def test_package_root_exports_service_specific_config_api_and_docs_document_load
     assert 'KeycloakAuthService(keycloak)' in api_doc
     assert 'create_postgres_client' in api_doc
     assert 'close_service_clients' in api_doc
+    assert 'CommonConfig()' in api_doc
+    assert 'KeycloakConfig()' in api_doc
     assert 'require_postgres_config' not in api_doc
     assert 'require_sqlite_config' not in api_doc
     assert 'load_keycloak_config' not in api_doc
@@ -227,13 +231,14 @@ def test_package_root_exports_service_specific_config_api_and_docs_document_load
     assert 'load_milvus_config' not in api_doc
     assert 'load_ollama_config' not in api_doc
     assert 'load_nats_config' not in api_doc
-    assert '서비스별 loader를 직접 쓰는 예시' in examples_doc
-    assert 'require_keycloak_config()' in examples_doc
-    assert '서비스별 config entrypoint(`load_common_config`, `require_keycloak_config`, `require_langfuse_config`, `PostgresConfig`, `SqliteConfig` 등)' in config_doc
-    assert 'deprecated compatibility alias' in config_doc
+    assert '서비스별 config class를 직접 쓰는 예시' in examples_doc
+    assert 'KeycloakConfig()' in examples_doc
+    assert '서비스별 config class(`CommonConfig`, `KeycloakConfig`, `LangfuseConfig`, `PostgresConfig`, `SqliteConfig` 등)' in config_doc
+    assert 'load_settings' not in config_doc
     assert '이 패키지는 보통 세 가지 방식으로 시작합니다.' in readme
-    assert '### A. 서비스별 loader를 직접 사용하는 경로' in readme
+    assert '### A. 서비스별 config class를 직접 사용하는 경로' in readme
     assert 'KeycloakAuthService(keycloak)' in readme
+    assert '2. `CommonConfig()` 또는 필요한 `*Config()` 직접 생성' in readme
     assert '`load_service_configs()`가 서비스 묶음 로더의 기본 경로입니다.' in readme
     assert 'create_*_client()' in readme
 

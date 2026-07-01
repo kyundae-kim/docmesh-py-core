@@ -51,7 +51,7 @@ uv sync
 
 이 패키지는 보통 세 가지 방식으로 시작합니다.
 
-### A. 서비스별 loader를 직접 사용하는 경로
+### A. 서비스별 config class를 직접 사용하는 경로
 
 적합한 상황:
 
@@ -62,17 +62,17 @@ uv sync
 기본 순서:
 
 1. 환경변수 준비
-2. `load_common_config()` 또는 `require_*_config()` 호출
+2. `CommonConfig()` 또는 필요한 `*Config()` 직접 생성
 3. 필요한 서비스 객체를 해당 config로 직접 생성
 4. 필요한 동작만 수행
 
 #### 예시: Keycloak 토큰 획득
 
 ```python
-from docmesh_py_core import KeycloakAuthService, load_common_config, require_keycloak_config
+from docmesh_py_core import CommonConfig, KeycloakAuthService, KeycloakConfig
 
-common = load_common_config()
-keycloak = require_keycloak_config()
+common = CommonConfig()
+keycloak = KeycloakConfig()
 auth = KeycloakAuthService(keycloak)
 
 token = auth.fetch_access_token()
@@ -83,8 +83,7 @@ print(token.token_type, token.expires_in)
 
 포인트:
 
-- `require_*`는 필수 설정이 없으면 즉시 `ConfigError`를 발생시킵니다.
-- `load_*`는 해당 서비스 env가 아예 없으면 `None`을 반환합니다.
+- 서비스별 `*Config()` 직접 생성은 pydantic `ValidationError`를 그대로 발생시킵니다.
 - `KeycloakAuthService`, `KeycloakProvisioner`는 신규 코드에서 서비스별 config 직접 주입을 권장합니다.
 
 ### B. aggregate settings를 로드한 뒤 서비스별 create 함수로 조립하는 경로
@@ -178,9 +177,9 @@ assert settings.minio is None
 ### 예시: 서비스별 Keycloak config로 토큰 획득 및 사용자 정보 추출
 
 ```python
-from docmesh_py_core import KeycloakAuthService, require_keycloak_config
+from docmesh_py_core import KeycloakAuthService, KeycloakConfig
 
-keycloak = require_keycloak_config()
+keycloak = KeycloakConfig()
 auth = KeycloakAuthService(keycloak)
 
 token = auth.fetch_access_token()
@@ -195,7 +194,7 @@ print(user.sub, user.preferred_username)
 대표 공개 타입/함수:
 
 - 설정: `CommonConfig`, `KeycloakConfig`, `PostgresConfig`, `SqliteConfig`, `ServiceConfigs`
-- 설정 entrypoint: `load_common_config`, `require_keycloak_config`, `require_langfuse_config`, `PostgresConfig`, `SqliteConfig`, `load_service_configs`
+- 설정 진입점: `CommonConfig`, `KeycloakConfig`, `LangfuseConfig`, `PostgresConfig`, `SqliteConfig`, `load_service_configs`
 - 생성 함수: `create_keycloak_client`, `create_postgres_client`, `create_sqlite_client`, `create_nats_client`
 - 런타임: `KeycloakAuthService`, `KeycloakProvisioner`, `check_all_services`, `close_service_clients`
 - 에러: `ConfigError`, `ServiceClientError`, `ServiceClientWrapperError`
@@ -206,7 +205,7 @@ print(user.sub, user.preferred_username)
 
 - 서비스별 config를 직접 사용하는 경로를 우선 권장합니다.
 - `load_service_configs()`가 서비스 묶음 로더의 기본 경로입니다.
-- `load_settings()`는 기존 호출부를 위한 compatibility alias입니다.
+
 - 서비스 생성은 `ServiceFactoryRegistry` 대신 `create_*_client()` 함수 중심입니다.
 - `ServiceClientWrapper`는 `check()`/`close()`/민감정보 마스킹을 표준화합니다.
 - NATS만 예외적으로 `NatsConnectionBuilder`를 반환하며 실제 연결은 비동기로 수행됩니다.

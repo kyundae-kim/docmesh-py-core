@@ -37,7 +37,6 @@ from docmesh_py_core import (
     ServiceConfigs,
     SqliteConfig,
     TokenValidationError,
-    apply_langfuse_defaults,
     build_service_log_event,
     check_all_services,
     close_service_clients,
@@ -49,16 +48,8 @@ from docmesh_py_core import (
     create_ollama_client,
     create_postgres_client,
     create_sqlite_client,
-    load_common_config,
     load_service_configs,
-    load_settings,
     mask_sensitive_value,
-    require_keycloak_config,
-    require_langfuse_config,
-    require_milvus_config,
-    require_minio_config,
-    require_nats_config,
-    require_ollama_config,
     retry_call,
     validate_runtime_security,
 )
@@ -71,7 +62,7 @@ from docmesh_py_core import (
 대부분의 소비 애플리케이션은 아래 순서로 SDK를 사용합니다.
 
 1. 환경변수 준비
-2. `load_common_config()` 또는 `load_service_configs()` 호출
+2. `CommonConfig()` 또는 `load_service_configs()` 호출
 3. 필요한 서비스만 `create_*_client()`로 조립
 4. 시작 시점에 `check()` 또는 `check_all_services()` 실행
 5. 종료 시 `close_service_clients()` 또는 개별 `close()` 호출
@@ -85,32 +76,29 @@ from docmesh_py_core import (
 
 ### 권장 public config entrypoint
 
-서비스별 설정만 필요하면 aggregate `ServiceConfigs`보다 서비스별 config entrypoint를 우선 사용하는 것을 권장합니다.
+서비스별 설정만 필요하면 aggregate `ServiceConfigs`보다 서비스별 config class 직접 생성을 우선 사용하는 것을 권장합니다.
 
-- 공통: `load_common_config() -> CommonConfig`
-- Keycloak: `require_keycloak_config()`
+- 공통: `CommonConfig()`
+- Keycloak: `KeycloakConfig()`
 - PostgreSQL: `PostgresConfig()`
 - SQLite: `SqliteConfig()`
-- MinIO: `require_minio_config()`
-- Milvus: `require_milvus_config()`
-- Ollama: `require_ollama_config()`
-- Langfuse: `require_langfuse_config(common=...)`
-- NATS: `require_nats_config()`
+- MinIO: `MinioConfig()`
+- Milvus: `MilvusConfig()`
+- Ollama: `OllamaConfig()`
+- Langfuse: `LangfuseConfig()`
+- NATS: `NatsConfig()`
 
 규칙:
 
-- `require_*`는 필수 설정이 없으면 `ConfigError`를 발생시킵니다.
-- `PostgresConfig()`와 `SqliteConfig()`는 필수 서비스 설정 모델로 직접 생성합니다.
+- 서비스별 `*Config()` 직접 생성은 pydantic `ValidationError`를 그대로 발생시킵니다.
 - `load_service_configs()`는 선택된 `postgres`/`sqlite`/`langfuse`도 필수 서비스로 검증합니다.
-- `load_settings()`는 기존 호출부를 위한 compatibility alias입니다.
-
 예시:
 
 ```python
-from docmesh_py_core import KeycloakAuthService, load_common_config, require_keycloak_config
+from docmesh_py_core import CommonConfig, KeycloakAuthService, KeycloakConfig
 
-common = load_common_config()
-keycloak = require_keycloak_config()
+common = CommonConfig()
+keycloak = KeycloakConfig()
 
 assert common.env in {"development", "integration", "production"}
 

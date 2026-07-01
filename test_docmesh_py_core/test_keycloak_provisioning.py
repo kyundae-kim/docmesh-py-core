@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from docmesh_py_core.config import require_keycloak_config as _runtime_require_keycloak_config
+from docmesh_py_core.config import KeycloakConfig
 from docmesh_py_core.keycloak import KeycloakProvisioner
 from test_docmesh_py_core.conftest import apply_docmesh_env
 
@@ -12,14 +12,14 @@ from test_docmesh_py_core.conftest import apply_docmesh_env
 pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
 
 
-def require_keycloak_config(env: dict[str, str] | None = None):
+def build_keycloak_config(env: dict[str, str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        return _runtime_require_keycloak_config()
+        return KeycloakConfig()
 
 
 def _config(*, dry_run: bool = False):
-    return require_keycloak_config(
+    return build_keycloak_config(
         {
             "KEYCLOAK_URL": "https://kc.example.com",
             "KEYCLOAK_REALM": "docmesh",

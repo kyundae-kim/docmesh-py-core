@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from docmesh_py_core.config import require_keycloak_config as _runtime_require_keycloak_config
+from docmesh_py_core.config import KeycloakConfig
 from docmesh_py_core.keycloak import (
     KeycloakAuthService,
     KeycloakTokenTemporaryError,
@@ -24,10 +24,10 @@ from test_docmesh_py_core.conftest import apply_docmesh_env
 pytestmark = [pytest.mark.unit, pytest.mark.keycloak]
 
 
-def require_keycloak_config(env: dict[str, str] | None = None):
+def build_keycloak_config(env: dict[str, str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
-        return _runtime_require_keycloak_config()
+        return KeycloakConfig()
 
 
 def _config(*, audience: str | None = None):
@@ -55,7 +55,7 @@ def _config(*, audience: str | None = None):
     }
     if audience is not None:
         env["KEYCLOAK_AUDIENCE"] = audience
-    return require_keycloak_config(env)
+    return build_keycloak_config(env)
 
 
 def _encode_hs256_jwt(claims: dict[str, object], secret: str) -> str:
