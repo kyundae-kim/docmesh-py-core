@@ -147,6 +147,14 @@ def integration_env() -> ServiceConfigs:
         return load_service_configs()
 
 
+from docmesh_py_core.config import KeycloakConfig
+from pydantic_settings import SettingsConfigDict
+
+
+class KeycloakIntegrationConfig(KeycloakConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='KEYCLOAK_', env_file='env/integration.env')
+
+
 def base_integration_env() -> dict[str, str]:
     return {
         "DOCMESH_ENV": INTEGRATION_ENV_NAME,

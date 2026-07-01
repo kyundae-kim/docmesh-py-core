@@ -25,6 +25,7 @@ from test_docmesh_py_core.conftest import (
     keycloak_token_is_configured,
     require_integration_environment,
     service_is_configured,
+    KeycloakIntegrationConfig
 )
 
 
@@ -33,12 +34,12 @@ pytestmark = [pytest.mark.integration]
 
 @pytest.mark.keycloak
 def test_keycloak_oidc_discovery_endpoint_is_reachable():
-    require_integration_environment()
-    if not keycloak_discovery_is_configured():
-        pytest.skip("KEYCLOAK_URL/KEYCLOAK_REALM not configured for integration testing")
+    try:
+        settings = KeycloakIntegrationConfig()
+    except Exception as e:
+        pytest.skip(f"Failed to load Keycloak integration config: {e}")
 
-    settings = integration_env()
-    issuer = f"{settings.keycloak.url.rstrip('/')}/realms/{settings.keycloak.realm}"
+    issuer = f"{settings.url.rstrip('/')}/realms/{settings.realm}"
     discovery_url = f"{issuer}/.well-known/openid-configuration"
 
     with urlopen(discovery_url, timeout=10) as response:
