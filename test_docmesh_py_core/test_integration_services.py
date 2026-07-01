@@ -18,8 +18,8 @@ from docmesh_py_core.factories import (
 )
 from docmesh_py_core.keycloak import KeycloakAuthService
 from test_docmesh_py_core.conftest import (
-    activate_service_env,
-    apply_docmesh_env,
+    activated_service_env,
+    docmesh_env_context,
     integration_env,
     keycloak_discovery_is_configured,
     keycloak_token_is_configured,
@@ -50,23 +50,23 @@ def test_keycloak_oidc_discovery_endpoint_is_reachable():
 
 
 @pytest.mark.keycloak
-def test_keycloak_fetch_access_token_against_real_service(monkeypatch):
+def test_keycloak_fetch_access_token_against_real_service():
     require_integration_environment()
     if not keycloak_token_is_configured():
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
-    activate_service_env(monkeypatch, "keycloak")
-    keycloak = KeycloakConfig()
-    auth = KeycloakAuthService(keycloak)
+    with activated_service_env("keycloak"):
+        keycloak = KeycloakConfig()
+        auth = KeycloakAuthService(keycloak)
 
-    fetch_kwargs = {}
-    if keycloak.token_grant_type == "password":
-        fetch_kwargs = {
-            "username": keycloak.token_username,
-            "password": keycloak.token_password,
-        }
+        fetch_kwargs = {}
+        if keycloak.token_grant_type == "password":
+            fetch_kwargs = {
+                "username": keycloak.token_username,
+                "password": keycloak.token_password,
+            }
 
-    token = auth.fetch_access_token(**fetch_kwargs)
+        token = auth.fetch_access_token(**fetch_kwargs)
 
     assert token.access_token
     assert token.token_type
@@ -74,24 +74,24 @@ def test_keycloak_fetch_access_token_against_real_service(monkeypatch):
 
 
 @pytest.mark.keycloak
-def test_keycloak_extract_user_info_from_real_access_token(monkeypatch):
+def test_keycloak_extract_user_info_from_real_access_token():
     require_integration_environment()
     if not keycloak_token_is_configured():
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
-    activate_service_env(monkeypatch, "keycloak")
-    keycloak = KeycloakConfig()
-    auth = KeycloakAuthService(keycloak, allowed_algorithms=["RS256"])
+    with activated_service_env("keycloak"):
+        keycloak = KeycloakConfig()
+        auth = KeycloakAuthService(keycloak, allowed_algorithms=["RS256"])
 
-    fetch_kwargs = {}
-    if keycloak.token_grant_type == "password":
-        fetch_kwargs = {
-            "username": keycloak.token_username,
-            "password": keycloak.token_password,
-        }
+        fetch_kwargs = {}
+        if keycloak.token_grant_type == "password":
+            fetch_kwargs = {
+                "username": keycloak.token_username,
+                "password": keycloak.token_password,
+            }
 
-    token = auth.fetch_access_token(**fetch_kwargs)
-    user = auth.extract_user_info(token.access_token)
+        token = auth.fetch_access_token(**fetch_kwargs)
+        user = auth.extract_user_info(token.access_token)
 
     assert user.sub
     assert user.claims["iss"] == auth.issuer
@@ -99,108 +99,107 @@ def test_keycloak_extract_user_info_from_real_access_token(monkeypatch):
 
 
 @pytest.mark.health
-def test_postgres_wrapper_check_against_real_service(monkeypatch):
+def test_postgres_wrapper_check_against_real_service():
     require_integration_environment()
     if not service_is_configured("postgres"):
         pytest.skip("PostgreSQL integration settings are not configured")
 
-    activate_service_env(monkeypatch, "postgres")
-    settings = load_service_configs(services={"postgres"})
-    client = create_postgres_client(settings.postgres)
+    with activated_service_env("postgres"):
+        settings = load_service_configs(services={"postgres"})
+        client = create_postgres_client(settings.postgres)
 
-    result = client.check()
+        result = client.check()
 
     assert result is not None
 
 
 @pytest.mark.health
-def test_sqlite_wrapper_check_with_local_memory_database(monkeypatch):
-    apply_docmesh_env(
-        monkeypatch,
+def test_sqlite_wrapper_check_with_local_memory_database():
+    with docmesh_env_context(
         {
             "DOCMESH_ENV": "integration",
             "SQLITE_PATH": ":memory:",
         },
-    )
-    settings = load_service_configs(services={"sqlite"})
+    ):
+        settings = load_service_configs(services={"sqlite"})
 
-    client = create_sqlite_client(settings.sqlite)
+        client = create_sqlite_client(settings.sqlite)
 
-    result = client.check()
+        result = client.check()
 
     assert result is not None
 
 
 @pytest.mark.health
-def test_minio_wrapper_check_against_real_service(monkeypatch):
+def test_minio_wrapper_check_against_real_service():
     require_integration_environment()
     if not service_is_configured("minio"):
         pytest.skip("MinIO integration settings are not configured")
 
-    activate_service_env(monkeypatch, "minio")
-    settings = load_service_configs(services={"minio"})
-    client = create_minio_client(settings.minio)
+    with activated_service_env("minio"):
+        settings = load_service_configs(services={"minio"})
+        client = create_minio_client(settings.minio)
 
-    buckets = client.check()
+        buckets = client.check()
 
     assert buckets is not None
 
 
 @pytest.mark.health
-def test_milvus_wrapper_check_against_real_service(monkeypatch):
+def test_milvus_wrapper_check_against_real_service():
     require_integration_environment()
     if not service_is_configured("milvus"):
         pytest.skip("Milvus integration settings are not configured")
 
-    activate_service_env(monkeypatch, "milvus")
-    settings = load_service_configs(services={"milvus"})
-    client = create_milvus_client(settings.milvus)
+    with activated_service_env("milvus"):
+        settings = load_service_configs(services={"milvus"})
+        client = create_milvus_client(settings.milvus)
 
-    collections = client.check()
+        collections = client.check()
 
     assert collections is not None
 
 
 @pytest.mark.health
-def test_ollama_wrapper_check_against_real_service(monkeypatch):
+def test_ollama_wrapper_check_against_real_service():
     require_integration_environment()
     if not service_is_configured("ollama"):
         pytest.skip("Ollama integration settings are not configured")
 
-    activate_service_env(monkeypatch, "ollama")
-    settings = load_service_configs(services={"ollama"})
-    client = create_ollama_client(settings.ollama)
+    with activated_service_env("ollama"):
+        settings = load_service_configs(services={"ollama"})
+        client = create_ollama_client(settings.ollama)
 
-    response = client.check()
+        response = client.check()
 
     assert response is not None
 
 
 @pytest.mark.health
-def test_langfuse_wrapper_check_against_real_service(monkeypatch):
+def test_langfuse_wrapper_check_against_real_service():
     require_integration_environment()
     if not service_is_configured("langfuse"):
         pytest.skip("Langfuse integration settings are not configured or disabled")
 
-    activate_service_env(monkeypatch, "langfuse")
-    settings = load_service_configs(services={"langfuse"})
-    client = create_langfuse_client(settings.langfuse)
+    with activated_service_env("langfuse"):
+        settings = load_service_configs(services={"langfuse"})
+        client = create_langfuse_client(settings.langfuse)
 
-    result = client.check()
+        result = client.check()
 
     assert result is not None
 
 
 @pytest.mark.health
-def test_nats_builder_check_against_real_service(monkeypatch):
+def test_nats_builder_check_against_real_service():
     require_integration_environment()
     if not service_is_configured("nats"):
         pytest.skip("NATS integration settings are not configured")
 
-    activate_service_env(monkeypatch, "nats")
-    settings = load_service_configs(services={"nats"})
-    builder = create_nats_client(settings.nats)
+    with activated_service_env("nats"):
+        settings = load_service_configs(services={"nats"})
+        builder = create_nats_client(settings.nats)
 
-    result = asyncio.run(builder.check())
+        result = asyncio.run(builder.check())
 
     assert result is not None

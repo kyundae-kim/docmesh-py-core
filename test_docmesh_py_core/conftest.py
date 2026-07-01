@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 import sys
 from pathlib import Path
@@ -201,10 +202,24 @@ def apply_docmesh_env(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> N
         monkeypatch.setenv(key, _stringify_env_value(value))
 
 
+@contextmanager
+def docmesh_env_context(env: dict[str, str]):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env)
+        yield env
+
+
 def activate_service_env(monkeypatch: pytest.MonkeyPatch, service_name: str) -> dict[str, str]:
     env = service_env(service_name)
     apply_docmesh_env(monkeypatch, env)
     return env
+
+
+@contextmanager
+def activated_service_env(service_name: str):
+    env = service_env(service_name)
+    with docmesh_env_context(env):
+        yield env
 
 
 def require_integration_environment() -> None:

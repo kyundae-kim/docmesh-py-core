@@ -70,7 +70,8 @@ def test_integration_tests_use_shared_helpers_from_conftest():
     assert "from test_docmesh_py_core.conftest import" in integration_tests
     assert "integration_env" in integration_tests
     assert "require_integration_environment" in integration_tests
-    assert "service_env" in integration_tests
+    assert "activated_service_env" in integration_tests
+    assert "docmesh_env_context" in integration_tests
 
 
 def test_integration_test_module_documents_explicit_docmesh_env_gate():
@@ -246,11 +247,12 @@ def test_package_root_exports_service_specific_config_api_and_docs_document_load
 def test_integration_examples_use_service_specific_keycloak_loader_and_scoped_settings_loading():
     integration_tests = (PROJECT_ROOT / "test_docmesh_py_core" / "test_integration_services.py").read_text(encoding="utf-8")
 
-    assert 'activate_service_env(monkeypatch, "keycloak")' in integration_tests
-    assert 'activate_service_env(monkeypatch, "postgres")\n    settings = load_service_configs(services={"postgres"})' in integration_tests
+    assert 'with activated_service_env("keycloak"):' in integration_tests
+    assert 'with activated_service_env("postgres"):\n        settings = load_service_configs(services={"postgres"})' in integration_tests
     assert 'create_postgres_client(settings.postgres)' in integration_tests
+    assert 'with docmesh_env_context(' in integration_tests
     assert 'services={"sqlite"}' in integration_tests
-    assert 'activate_service_env(monkeypatch, "nats")\n    settings = load_service_configs(services={"nats"})' in integration_tests
+    assert 'with activated_service_env("nats"):\n        settings = load_service_configs(services={"nats"})' in integration_tests
     assert 'create_nats_client(settings.nats)' in integration_tests
 
 
