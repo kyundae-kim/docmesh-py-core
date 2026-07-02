@@ -13,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 from docmesh_py_core.config import (
+    CommonConfig,
     KeycloakConfig,
     KeycloakDiscoveryConfig,
     LangfuseConfig,
@@ -21,9 +22,7 @@ from docmesh_py_core.config import (
     NatsConfig,
     OllamaConfig,
     PostgresConfig,
-    ServiceConfigs,
     SqliteConfig,
-    load_service_configs,
 )
 from pydantic_settings import SettingsConfigDict
 
@@ -152,12 +151,16 @@ def _stringify_env_value(value: object) -> str:
     return str(value)
 
 
-def integration_env() -> ServiceConfigs:
+def integration_common_config() -> CommonConfig:
     env = base_integration_env()
     env.update(parse_env_file(ROOT / 'env' / 'integration.env'))
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env)
-        return load_service_configs()
+        return CommonIntegrationConfig()
+
+
+class CommonIntegrationConfig(CommonConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='DOCMESH_', env_file='env/integration.env')
 
 
 class KeycloakIntegrationDiscoveryConfig(KeycloakDiscoveryConfig):
@@ -237,6 +240,9 @@ def base_integration_env() -> dict[str, str]:
 
 def service_env(service_name: str) -> dict[str, str]:
     env = base_integration_env()
+    common = integration_common_config()
+    env["DOCMESH_ENV"] = _stringify_env_value(common.env)
+    env["DOCMESH_HEALTHCHECK_ENABLED"] = _stringify_env_value(common.healthcheck_enabled)
     try:
         service_settings = INTEGRATION_SERVICE_CONFIG_CLASSES[service_name]()
     except ValidationError:
@@ -281,7 +287,7 @@ def activated_service_env(service_name: str):
 
 
 def require_integration_environment() -> None:
-    current_env = str(integration_env().common.env).strip().lower()
+    current_env = str(integration_common_config().env).strip().lower()
     if current_env != INTEGRATION_ENV_NAME:
         pytest.skip("Set DOCMESH_ENV=integration to run real-service integration tests")
 

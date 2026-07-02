@@ -138,6 +138,7 @@ def test_non_keycloak_integration_config_classes_exist_in_conftest():
     source = (package_root.__path__[0] + "/../test_docmesh_py_core/conftest.py")
     content = open(source, encoding="utf-8").read()
 
+    assert "class CommonIntegrationConfig(" in content
     for class_name in (
         "PostgresIntegrationConfig",
         "SqliteIntegrationConfig",
@@ -171,6 +172,16 @@ def test_non_keycloak_integration_services_use_integration_specific_config_model
     assert 'load_service_configs(services={"ollama"})' not in content
     assert 'load_service_configs(services={"langfuse"})' not in content
     assert 'load_service_configs(services={"nats"})' not in content
+
+
+def test_integration_conftest_no_longer_uses_aggregate_service_loader_for_common_gating():
+    source = (package_root.__path__[0] + "/../test_docmesh_py_core/conftest.py")
+    content = open(source, encoding="utf-8").read()
+
+    assert "ServiceConfigs" not in content
+    assert "load_service_configs" not in content
+    assert "def integration_env(" not in content
+    assert "def integration_common_config(" in content
 
 
 def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):

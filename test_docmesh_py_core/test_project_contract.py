@@ -85,22 +85,25 @@ def test_integration_test_module_documents_explicit_docmesh_env_gate():
     assert 'pytest.skip("Set DOCMESH_ENV=integration to run real-service integration tests")' in conftest
 
 
-def test_integration_env_only_reads_dedicated_integration_file_before_process_env():
+def test_common_integration_config_only_reads_dedicated_integration_file_before_process_env():
     conftest = (PROJECT_ROOT / "test_docmesh_py_core" / "conftest.py").read_text(encoding="utf-8")
 
     assert "parse_env_file(ROOT / 'env' / 'integration.env')" in conftest
-    assert 'return load_service_configs()' in conftest
+    assert 'CommonIntegrationConfig()' in conftest
     assert 'ROOT / ".env"' not in conftest
 
 
-def test_integration_env_returns_integration_settings_object(monkeypatch: pytest.MonkeyPatch):
-    fake_settings = object()
-    monkeypatch.setattr(test_conftest, "load_service_configs", lambda: fake_settings)
+def test_integration_common_config_returns_common_integration_settings_object(monkeypatch: pytest.MonkeyPatch):
+    class FakeCommonIntegrationConfig:
+        env = "integration"
+        healthcheck_enabled = True
+
+    monkeypatch.setattr(test_conftest, "CommonIntegrationConfig", FakeCommonIntegrationConfig)
     monkeypatch.setattr(test_conftest, "parse_env_file", lambda _: {})
 
-    env = test_conftest.integration_env()
+    env = test_conftest.integration_common_config()
 
-    assert env is fake_settings
+    assert isinstance(env, FakeCommonIntegrationConfig)
 
 
 def test_integration_helpers_use_integration_settings_object(monkeypatch: pytest.MonkeyPatch):
@@ -172,8 +175,8 @@ def test_integration_helpers_use_integration_settings_object(monkeypatch: pytest
         milvus = None
         ollama = None
 
-    monkeypatch.setattr(test_conftest, "load_service_configs", lambda: FakeIntegrationSettings())
     monkeypatch.setattr(test_conftest, "parse_env_file", lambda _: {})
+    monkeypatch.setattr(test_conftest, "CommonIntegrationConfig", FakeCommon)
     monkeypatch.setattr(test_conftest, "KeycloakIntegrationDiscoveryConfig", FakeKeycloak)
     monkeypatch.setattr(test_conftest, "KeycloakIntegrationConfig", FakeKeycloak)
     monkeypatch.setitem(test_conftest.INTEGRATION_SERVICE_CONFIG_CLASSES, "keycloak", FakeKeycloak)
