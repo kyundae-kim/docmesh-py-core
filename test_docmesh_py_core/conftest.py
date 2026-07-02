@@ -1,14 +1,30 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import os
 import sys
 from pathlib import Path
 
-import pytest
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+import pytest
+from pydantic import ValidationError
+
+from docmesh_py_core.config import (
+    CommonConfig,
+    KeycloakConfig,
+    KeycloakDiscoveryConfig,
+    LangfuseConfig,
+    MilvusConfig,
+    MinioConfig,
+    NatsConfig,
+    OllamaConfig,
+    PostgresConfig,
+    SqliteConfig,
+)
+from pydantic_settings import SettingsConfigDict
 
 INTEGRATION_ENV_NAME = "integration"
 DOCMESH_ENV_PREFIXES = (
@@ -100,6 +116,7 @@ SERVICE_ENV_KEYS = {
 }
 REQUIRED_SERVICE_ENV_KEYS = {
     "postgres": (("POSTGRES_DSN",), ("POSTGRES_HOST", "POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD")),
+    "sqlite": (("SQLITE_PATH",),),
     "minio": (("MINIO_ENDPOINT", "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"),),
     "milvus": (("MILVUS_URI",),),
     "ollama": (("OLLAMA_HOST",),),
@@ -126,12 +143,72 @@ def parse_env_file(path: Path) -> dict[str, str]:
     return parsed
 
 
-def integration_env() -> dict[str, str]:
-    env: dict[str, str] = {}
-    for candidate in (ROOT / ".env.integration", ROOT / ".env"):
-        env.update(parse_env_file(candidate))
-    env.update({key: value for key, value in os.environ.items() if value})
-    return env
+def _stringify_env_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, list):
+        return ",".join(str(item) for item in value)
+    return str(value)
+
+
+def integration_common_config() -> CommonConfig:
+    env = base_integration_env()
+    env.update(parse_env_file(ROOT / 'env' / 'integration.env'))
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env)
+        return CommonIntegrationConfig()
+
+
+class CommonIntegrationConfig(CommonConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='DOCMESH_', env_file='env/integration.env')
+
+
+class KeycloakIntegrationDiscoveryConfig(KeycloakDiscoveryConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='KEYCLOAK_', env_file='env/integration.env')
+
+
+class KeycloakIntegrationConfig(KeycloakConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='KEYCLOAK_', env_file='env/integration.env')
+
+
+class PostgresIntegrationConfig(PostgresConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='POSTGRES_', env_file='env/integration.env')
+
+
+class SqliteIntegrationConfig(SqliteConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='SQLITE_', env_file='env/integration.env')
+
+
+class MinioIntegrationConfig(MinioConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='MINIO_', env_file='env/integration.env')
+
+
+class MilvusIntegrationConfig(MilvusConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='MILVUS_', env_file='env/integration.env')
+
+
+class OllamaIntegrationConfig(OllamaConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='OLLAMA_', env_file='env/integration.env')
+
+
+class LangfuseIntegrationConfig(LangfuseConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='LANGFUSE_', env_file='env/integration.env')
+
+
+class NatsIntegrationConfig(NatsConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='NATS_', env_file='env/integration.env')
+
+
+INTEGRATION_SERVICE_CONFIG_CLASSES = {
+    'keycloak': KeycloakIntegrationConfig,
+    'postgres': PostgresIntegrationConfig,
+    'sqlite': SqliteIntegrationConfig,
+    'minio': MinioIntegrationConfig,
+    'milvus': MilvusIntegrationConfig,
+    'ollama': OllamaIntegrationConfig,
+    'langfuse': LangfuseIntegrationConfig,
+    'nats': NatsIntegrationConfig,
+}
 
 
 def base_integration_env() -> dict[str, str]:
@@ -149,6 +226,7 @@ def base_integration_env() -> dict[str, str]:
         "POSTGRES_USER": "docmesh",
         "POSTGRES_PASSWORD": "placeholder-password",
         "POSTGRES_SSLMODE": "prefer",
+        "SQLITE_PATH": ":memory:",
         "MINIO_ENDPOINT": "localhost:9000",
         "MINIO_ACCESS_KEY": "placeholder-access-key",
         "MINIO_SECRET_KEY": "placeholder-secret-key",
@@ -160,41 +238,76 @@ def base_integration_env() -> dict[str, str]:
     }
 
 
-def service_env(service_name: str) -> dict[str, str]:
-    actual = integration_env()
+def integration_service_env(service_name: str) -> dict[str, str]:
     env = base_integration_env()
-    env.update({key: actual[key] for key in {"DOCMESH_ENV", "DOCMESH_HEALTHCHECK_ENABLED"} if actual.get(key)})
-    env.update({key: actual[key] for key in SERVICE_ENV_KEYS[service_name] if actual.get(key)})
+    common = integration_common_config()
+    env["DOCMESH_ENV"] = _stringify_env_value(common.env)
+    env["DOCMESH_HEALTHCHECK_ENABLED"] = _stringify_env_value(common.healthcheck_enabled)
+    try:
+        service_settings = INTEGRATION_SERVICE_CONFIG_CLASSES[service_name]()
+    except ValidationError:
+        return env
+
+    service_settings_cls = type(service_settings)
+    for field_name in service_settings_cls.model_fields:
+        value = getattr(service_settings, field_name)
+        if value is None:
+            continue
+        env_key = service_settings_cls.env_key(field_name)
+        env[env_key] = _stringify_env_value(value)
     return env
 
 
+def apply_docmesh_env(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]) -> None:
+    for env_key in tuple(os.environ):
+        if env_key.startswith(DOCMESH_ENV_PREFIXES):
+            monkeypatch.delenv(env_key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, _stringify_env_value(value))
+
+
+@contextmanager
+def docmesh_env_context(env: dict[str, str]):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env)
+        yield env
 def require_integration_environment() -> None:
-    current_env = integration_env().get("DOCMESH_ENV", "").strip().lower()
+    current_env = str(integration_common_config().env).strip().lower()
     if current_env != INTEGRATION_ENV_NAME:
         pytest.skip("Set DOCMESH_ENV=integration to run real-service integration tests")
 
 
-def service_is_configured(service_name: str) -> bool:
-    env = integration_env()
-    if service_name == "langfuse" and env.get("LANGFUSE_ENABLED", "true").lower() == "false":
+def integration_service_is_configured(service_name: str) -> bool:
+    try:
+        service_settings = INTEGRATION_SERVICE_CONFIG_CLASSES[service_name]()
+    except ValidationError:
         return False
+    if service_name == "langfuse" and not service_settings.enabled:
+        return False
+    env = integration_service_env(service_name)
     requirement_groups = REQUIRED_SERVICE_ENV_KEYS[service_name]
     return any(all(env.get(key) for key in group) for group in requirement_groups)
 
 
-def keycloak_discovery_is_configured() -> bool:
-    env = integration_env()
-    return bool(env.get("KEYCLOAK_URL") and env.get("KEYCLOAK_REALM"))
-
-
-def keycloak_token_is_configured() -> bool:
-    env = integration_env()
-    if not keycloak_discovery_is_configured() or not env.get("KEYCLOAK_CLIENT_ID"):
+def keycloak_integration_discovery_is_configured() -> bool:
+    try:
+        keycloak = KeycloakIntegrationDiscoveryConfig()
+    except ValidationError:
         return False
-    grant_type = env.get("KEYCLOAK_TOKEN_GRANT_TYPE", "client_credentials")
+    return bool(keycloak.url and keycloak.realm)
+
+
+def keycloak_integration_token_is_configured() -> bool:
+    try:
+        keycloak = KeycloakIntegrationConfig()
+    except ValidationError:
+        return False
+    if not keycloak_integration_discovery_is_configured() or not keycloak.client_id:
+        return False
+    grant_type = keycloak.token_grant_type
     if grant_type == "password":
-        return bool(env.get("KEYCLOAK_TOKEN_USERNAME") and env.get("KEYCLOAK_TOKEN_PASSWORD"))
-    return bool(env.get("KEYCLOAK_CLIENT_SECRET"))
+        return bool(keycloak.token_username and keycloak.token_password)
+    return bool(keycloak.client_secret)
 
 
 @pytest.fixture(autouse=True)
