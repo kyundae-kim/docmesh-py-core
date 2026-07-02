@@ -238,7 +238,7 @@ def base_integration_env() -> dict[str, str]:
     }
 
 
-def service_env(service_name: str) -> dict[str, str]:
+def integration_service_env(service_name: str) -> dict[str, str]:
     env = base_integration_env()
     common = integration_common_config()
     env["DOCMESH_ENV"] = _stringify_env_value(common.env)
@@ -277,19 +277,19 @@ def require_integration_environment() -> None:
         pytest.skip("Set DOCMESH_ENV=integration to run real-service integration tests")
 
 
-def service_is_configured(service_name: str) -> bool:
+def integration_service_is_configured(service_name: str) -> bool:
     try:
         service_settings = INTEGRATION_SERVICE_CONFIG_CLASSES[service_name]()
     except ValidationError:
         return False
     if service_name == "langfuse" and not service_settings.enabled:
         return False
-    env = service_env(service_name)
+    env = integration_service_env(service_name)
     requirement_groups = REQUIRED_SERVICE_ENV_KEYS[service_name]
     return any(all(env.get(key) for key in group) for group in requirement_groups)
 
 
-def keycloak_discovery_is_configured() -> bool:
+def keycloak_integration_discovery_is_configured() -> bool:
     try:
         keycloak = KeycloakIntegrationDiscoveryConfig()
     except ValidationError:
@@ -297,12 +297,12 @@ def keycloak_discovery_is_configured() -> bool:
     return bool(keycloak.url and keycloak.realm)
 
 
-def keycloak_token_is_configured() -> bool:
+def keycloak_integration_token_is_configured() -> bool:
     try:
         keycloak = KeycloakIntegrationConfig()
     except ValidationError:
         return False
-    if not keycloak_discovery_is_configured() or not keycloak.client_id:
+    if not keycloak_integration_discovery_is_configured() or not keycloak.client_id:
         return False
     grant_type = keycloak.token_grant_type
     if grant_type == "password":

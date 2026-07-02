@@ -74,6 +74,12 @@ def test_integration_tests_use_shared_helpers_from_conftest():
     assert "KeycloakIntegrationConfig" in integration_tests
     assert "PostgresIntegrationConfig" in integration_tests
     assert "NatsIntegrationConfig" in integration_tests
+    assert "integration_service_is_configured" in integration_tests
+    assert "keycloak_integration_discovery_is_configured" in integration_tests
+    assert "keycloak_integration_token_is_configured" in integration_tests
+    assert "    service_is_configured," not in integration_tests
+    assert "    keycloak_discovery_is_configured," not in integration_tests
+    assert "    keycloak_token_is_configured," not in integration_tests
     assert "activate_service_env" not in conftest
     assert "activated_service_env" not in conftest
 
@@ -188,13 +194,13 @@ def test_integration_helpers_use_integration_settings_object(monkeypatch: pytest
     monkeypatch.setitem(test_conftest.INTEGRATION_SERVICE_CONFIG_CLASSES, "nats", FakeNats)
 
     test_conftest.require_integration_environment()
-    assert test_conftest.keycloak_discovery_is_configured() is True
-    assert test_conftest.keycloak_token_is_configured() is True
-    assert test_conftest.service_is_configured("postgres") is True
-    assert test_conftest.service_is_configured("nats") is True
-    assert test_conftest.service_is_configured("langfuse") is False
-    assert test_conftest.service_env("keycloak")["KEYCLOAK_URL"] == "http://keycloak:8080"
-    assert test_conftest.service_env("nats")["NATS_SERVERS"] == "nats://nats:4222"
+    assert test_conftest.keycloak_integration_discovery_is_configured() is True
+    assert test_conftest.keycloak_integration_token_is_configured() is True
+    assert test_conftest.integration_service_is_configured("postgres") is True
+    assert test_conftest.integration_service_is_configured("nats") is True
+    assert test_conftest.integration_service_is_configured("langfuse") is False
+    assert test_conftest.integration_service_env("keycloak")["KEYCLOAK_URL"] == "http://keycloak:8080"
+    assert test_conftest.integration_service_env("nats")["NATS_SERVERS"] == "nats://nats:4222"
 
 
 def test_docs_and_contracts_use_docmesh_env_integration_selector_consistently():

@@ -27,7 +27,7 @@ from docmesh_py_core.config import (
     validate_runtime_security,
 )
 from docmesh_py_core.security import mask_sensitive_value
-from test_docmesh_py_core.conftest import apply_docmesh_env, keycloak_token_is_configured
+from test_docmesh_py_core.conftest import apply_docmesh_env, keycloak_integration_token_is_configured
 
 
 def build_common_config(env: dict[str, str] | None = None) -> CommonConfig:
@@ -119,7 +119,7 @@ def test_keycloak_config_extends_keycloak_discovery_config():
 
 
 def test_keycloak_token_configuration_helper_uses_integration_keycloak_config():
-    helper_source = inspect.getsource(keycloak_token_is_configured)
+    helper_source = inspect.getsource(keycloak_integration_token_is_configured)
 
     assert "KeycloakIntegrationConfig" in helper_source
     assert "integration_env().keycloak" not in helper_source
@@ -183,7 +183,15 @@ def test_integration_conftest_no_longer_uses_aggregate_service_loader_for_common
     assert "def integration_env(" not in content
     assert "def activate_service_env(" not in content
     assert "def activated_service_env(" not in content
+    assert "def service_env(" not in content
+    assert "def service_is_configured(" not in content
+    assert "def keycloak_discovery_is_configured(" not in content
+    assert "def keycloak_token_is_configured(" not in content
     assert "def integration_common_config(" in content
+    assert "def integration_service_env(" in content
+    assert "def integration_service_is_configured(" in content
+    assert "def keycloak_integration_discovery_is_configured(" in content
+    assert "def keycloak_integration_token_is_configured(" in content
 
 
 def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):
