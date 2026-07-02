@@ -247,7 +247,8 @@ def test_package_root_exports_service_specific_config_api_and_docs_document_load
 def test_integration_examples_use_service_specific_keycloak_loader_and_scoped_settings_loading():
     integration_tests = (PROJECT_ROOT / "test_docmesh_py_core" / "test_integration_services.py").read_text(encoding="utf-8")
 
-    assert 'with activated_service_env("keycloak"):' in integration_tests
+    assert 'KeycloakIntegrationDiscoveryConfig' in integration_tests
+    assert 'KeycloakIntegrationConfig' in integration_tests
     assert 'with activated_service_env("postgres"):\n        settings = load_service_configs(services={"postgres"})' in integration_tests
     assert 'create_postgres_client(settings.postgres)' in integration_tests
     assert 'with docmesh_env_context(' in integration_tests
