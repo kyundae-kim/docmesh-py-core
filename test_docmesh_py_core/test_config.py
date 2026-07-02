@@ -12,6 +12,7 @@ pytestmark = [pytest.mark.unit]
 from docmesh_py_core.config import (
     CommonConfig,
     ConfigError,
+    KeycloakDiscoveryConfig,
     KeycloakConfig,
     LangfuseConfig,
     MinioConfig,
@@ -44,6 +45,12 @@ def build_keycloak_config(env: dict[str, str] | None = None):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env or {})
         return KeycloakConfig()
+
+
+def build_keycloak_discovery_config(env: dict[str, str] | None = None):
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        apply_docmesh_env(monkeypatch, env or {})
+        return KeycloakDiscoveryConfig()
 
 
 def build_langfuse_config(env: dict[str, str] | None = None):
@@ -92,6 +99,22 @@ def test_direct_keycloak_config_raises_validation_error_when_missing_required_en
         build_keycloak_config({})
 
     assert "url" in str(exc_info.value)
+
+
+def test_direct_keycloak_discovery_config_reads_process_environment_without_client_credentials():
+    config = build_keycloak_discovery_config(
+        {
+            "KEYCLOAK_URL": "https://kc.example.com",
+            "KEYCLOAK_REALM": "docmesh",
+        }
+    )
+
+    assert config.url == "https://kc.example.com"
+    assert config.realm == "docmesh"
+
+
+def test_keycloak_config_extends_keycloak_discovery_config():
+    assert issubclass(KeycloakConfig, KeycloakDiscoveryConfig)
 
 
 def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):
@@ -146,6 +169,7 @@ def test_langfuse_config_defaults_environment_to_development():
 
 
 def test_package_root_does_not_export_removed_config_helpers():
+    assert "KeycloakDiscoveryConfig" in package_root.__all__
     assert "load_common_config" not in package_root.__all__
     assert "load_settings" not in package_root.__all__
     assert "require_keycloak_config" not in package_root.__all__

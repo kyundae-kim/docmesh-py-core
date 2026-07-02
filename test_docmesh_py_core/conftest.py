@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -147,8 +148,12 @@ def integration_env() -> ServiceConfigs:
         return load_service_configs()
 
 
-from docmesh_py_core.config import KeycloakConfig
+from docmesh_py_core.config import KeycloakConfig, KeycloakDiscoveryConfig
 from pydantic_settings import SettingsConfigDict
+
+
+class KeycloakIntegrationDiscoveryConfig(KeycloakDiscoveryConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='KEYCLOAK_', env_file='env/integration.env')
 
 
 class KeycloakIntegrationConfig(KeycloakConfig):
@@ -249,8 +254,11 @@ def service_is_configured(service_name: str) -> bool:
 
 
 def keycloak_discovery_is_configured() -> bool:
-    keycloak = integration_env().keycloak
-    return bool(keycloak and keycloak.url and keycloak.realm)
+    try:
+        keycloak = KeycloakIntegrationDiscoveryConfig()
+    except ValidationError:
+        return False
+    return bool(keycloak.url and keycloak.realm)
 
 
 def keycloak_token_is_configured() -> bool:

@@ -65,10 +65,23 @@ class CommonConfig(DocmeshBaseSettings):
     def parse_healthcheck_enabled(cls, value: Any) -> Any:
         return cls._parse_bool(value, 'healthcheck_enabled')
 
-class KeycloakConfig(DocmeshBaseSettings):
+class KeycloakDiscoveryConfig(DocmeshBaseSettings):
     model_config = SettingsConfigDict(extra='ignore', case_sensitive=False, env_prefix='KEYCLOAK_')
     url: str
     realm: str
+
+    @model_validator(mode='after')
+    @log_function_boundary()
+    def validate_required_fields(self) -> 'KeycloakDiscoveryConfig':
+        required_fields = {self.env_key('url'): self.url, self.env_key('realm'): self.realm}
+        missing = [name for name, value in required_fields.items() if value is None]
+        if missing:
+            raise ValueError(f'Missing required environment variable: {missing[0]}')
+        return self
+
+
+class KeycloakConfig(KeycloakDiscoveryConfig):
+    model_config = SettingsConfigDict(extra='ignore', case_sensitive=False, env_prefix='KEYCLOAK_')
     client_id: str
     client_secret: str | None = None
     verify_ssl: bool = True
@@ -119,7 +132,7 @@ class KeycloakConfig(DocmeshBaseSettings):
     @model_validator(mode='after')
     @log_function_boundary()
     def validate_required_fields(self) -> 'KeycloakConfig':
-        required_fields = {self.env_key('url'): self.url, self.env_key('realm'): self.realm, self.env_key('client_id'): self.client_id}
+        required_fields = {self.env_key('client_id'): self.client_id}
         missing = [name for name, value in required_fields.items() if value is None]
         if missing:
             raise ValueError(f'Missing required environment variable: {missing[0]}')

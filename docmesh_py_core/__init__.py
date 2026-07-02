@@ -1,6 +1,7 @@
 from .config import (
     CommonConfig,
     ConfigError,
+    KeycloakDiscoveryConfig,
     KeycloakConfig,
     LangfuseConfig,
     MinioConfig,
@@ -50,6 +51,7 @@ __all__ = [
     "AuthenticatedUser",
     "CommonConfig",
     "ConfigError",
+    "KeycloakDiscoveryConfig",
     "KeycloakConfig",
     "configure_logging",
     "HealthCheckError",
