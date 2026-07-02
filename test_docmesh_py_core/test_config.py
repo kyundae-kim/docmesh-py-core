@@ -134,6 +134,45 @@ def test_keycloak_integration_services_use_integration_specific_config_models():
     assert "keycloak = KeycloakConfig()" not in content
 
 
+def test_non_keycloak_integration_config_classes_exist_in_conftest():
+    source = (package_root.__path__[0] + "/../test_docmesh_py_core/conftest.py")
+    content = open(source, encoding="utf-8").read()
+
+    for class_name in (
+        "PostgresIntegrationConfig",
+        "SqliteIntegrationConfig",
+        "MinioIntegrationConfig",
+        "MilvusIntegrationConfig",
+        "OllamaIntegrationConfig",
+        "LangfuseIntegrationConfig",
+        "NatsIntegrationConfig",
+    ):
+        assert f"class {class_name}(" in content
+
+
+def test_non_keycloak_integration_services_use_integration_specific_config_models():
+    source = (package_root.__path__[0] + "/../test_docmesh_py_core/test_integration_services.py")
+    content = open(source, encoding="utf-8").read()
+
+    for class_name in (
+        "PostgresIntegrationConfig",
+        "SqliteIntegrationConfig",
+        "MinioIntegrationConfig",
+        "MilvusIntegrationConfig",
+        "OllamaIntegrationConfig",
+        "LangfuseIntegrationConfig",
+        "NatsIntegrationConfig",
+    ):
+        assert f"{class_name}()" in content
+
+    assert 'load_service_configs(services={"postgres"})' not in content
+    assert 'load_service_configs(services={"minio"})' not in content
+    assert 'load_service_configs(services={"milvus"})' not in content
+    assert 'load_service_configs(services={"ollama"})' not in content
+    assert 'load_service_configs(services={"langfuse"})' not in content
+    assert 'load_service_configs(services={"nats"})' not in content
+
+
 def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("KEYCLOAK_URL", "https://ambient.example.com")
     monkeypatch.setenv("KEYCLOAK_REALM", "ambient")

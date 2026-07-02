@@ -5,13 +5,27 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-from pydantic import ValidationError
-
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+import pytest
+from pydantic import ValidationError
+
+from docmesh_py_core.config import (
+    KeycloakConfig,
+    KeycloakDiscoveryConfig,
+    LangfuseConfig,
+    MilvusConfig,
+    MinioConfig,
+    NatsConfig,
+    OllamaConfig,
+    PostgresConfig,
+    ServiceConfigs,
+    SqliteConfig,
+    load_service_configs,
+)
+from pydantic_settings import SettingsConfigDict
 
 INTEGRATION_ENV_NAME = "integration"
 DOCMESH_ENV_PREFIXES = (
@@ -129,8 +143,6 @@ def parse_env_file(path: Path) -> dict[str, str]:
         parsed[key] = value
     return parsed
 
-from docmesh_py_core.config import ServiceConfigs, load_service_configs
-
 
 def _stringify_env_value(value: object) -> str:
     if isinstance(value, bool):
@@ -148,16 +160,52 @@ def integration_env() -> ServiceConfigs:
         return load_service_configs()
 
 
-from docmesh_py_core.config import KeycloakConfig, KeycloakDiscoveryConfig
-from pydantic_settings import SettingsConfigDict
-
-
 class KeycloakIntegrationDiscoveryConfig(KeycloakDiscoveryConfig):
     model_config = SettingsConfigDict(case_sensitive=False, env_prefix='KEYCLOAK_', env_file='env/integration.env')
 
 
 class KeycloakIntegrationConfig(KeycloakConfig):
     model_config = SettingsConfigDict(case_sensitive=False, env_prefix='KEYCLOAK_', env_file='env/integration.env')
+
+
+class PostgresIntegrationConfig(PostgresConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='POSTGRES_', env_file='env/integration.env')
+
+
+class SqliteIntegrationConfig(SqliteConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='SQLITE_', env_file='env/integration.env')
+
+
+class MinioIntegrationConfig(MinioConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='MINIO_', env_file='env/integration.env')
+
+
+class MilvusIntegrationConfig(MilvusConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='MILVUS_', env_file='env/integration.env')
+
+
+class OllamaIntegrationConfig(OllamaConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='OLLAMA_', env_file='env/integration.env')
+
+
+class LangfuseIntegrationConfig(LangfuseConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='LANGFUSE_', env_file='env/integration.env')
+
+
+class NatsIntegrationConfig(NatsConfig):
+    model_config = SettingsConfigDict(case_sensitive=False, env_prefix='NATS_', env_file='env/integration.env')
+
+
+INTEGRATION_SERVICE_CONFIG_CLASSES = {
+    'keycloak': KeycloakIntegrationConfig,
+    'postgres': PostgresIntegrationConfig,
+    'sqlite': SqliteIntegrationConfig,
+    'minio': MinioIntegrationConfig,
+    'milvus': MilvusIntegrationConfig,
+    'ollama': OllamaIntegrationConfig,
+    'langfuse': LangfuseIntegrationConfig,
+    'nats': NatsIntegrationConfig,
+}
 
 
 def base_integration_env() -> dict[str, str]:
@@ -188,13 +236,10 @@ def base_integration_env() -> dict[str, str]:
 
 
 def service_env(service_name: str) -> dict[str, str]:
-    settings = integration_env()
     env = base_integration_env()
-    env["DOCMESH_ENV"] = _stringify_env_value(settings.common.env)
-    env["DOCMESH_HEALTHCHECK_ENABLED"] = _stringify_env_value(settings.common.healthcheck_enabled)
-
-    service_settings = getattr(settings, service_name)
-    if service_settings is None:
+    try:
+        service_settings = INTEGRATION_SERVICE_CONFIG_CLASSES[service_name]()
+    except ValidationError:
         return env
 
     service_settings_cls = type(service_settings)
@@ -242,9 +287,9 @@ def require_integration_environment() -> None:
 
 
 def service_is_configured(service_name: str) -> bool:
-    settings = integration_env()
-    service_settings = getattr(settings, service_name)
-    if service_settings is None:
+    try:
+        service_settings = INTEGRATION_SERVICE_CONFIG_CLASSES[service_name]()
+    except ValidationError:
         return False
     if service_name == "langfuse" and not service_settings.enabled:
         return False

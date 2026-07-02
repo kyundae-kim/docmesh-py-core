@@ -6,7 +6,6 @@ from urllib.request import urlopen
 
 import pytest
 
-from docmesh_py_core.config import load_service_configs
 from docmesh_py_core.factories import (
     create_langfuse_client,
     create_milvus_client,
@@ -18,11 +17,16 @@ from docmesh_py_core.factories import (
 )
 from docmesh_py_core.keycloak import KeycloakAuthService
 from test_docmesh_py_core.conftest import (
-    activated_service_env,
     docmesh_env_context,
-    integration_env,
     KeycloakIntegrationConfig,
     KeycloakIntegrationDiscoveryConfig,
+    LangfuseIntegrationConfig,
+    MilvusIntegrationConfig,
+    MinioIntegrationConfig,
+    NatsIntegrationConfig,
+    OllamaIntegrationConfig,
+    PostgresIntegrationConfig,
+    SqliteIntegrationConfig,
     keycloak_discovery_is_configured,
     keycloak_token_is_configured,
     require_integration_environment,
@@ -102,11 +106,10 @@ def test_postgres_wrapper_check_against_real_service():
     if not service_is_configured("postgres"):
         pytest.skip("PostgreSQL integration settings are not configured")
 
-    with activated_service_env("postgres"):
-        settings = load_service_configs(services={"postgres"})
-        client = create_postgres_client(settings.postgres)
+    postgres = PostgresIntegrationConfig()
+    client = create_postgres_client(postgres)
 
-        result = client.check()
+    result = client.check()
 
     assert result is not None
 
@@ -119,9 +122,8 @@ def test_sqlite_wrapper_check_with_local_memory_database():
             "SQLITE_PATH": ":memory:",
         },
     ):
-        settings = load_service_configs(services={"sqlite"})
-
-        client = create_sqlite_client(settings.sqlite)
+        sqlite = SqliteIntegrationConfig()
+        client = create_sqlite_client(sqlite)
 
         result = client.check()
 
@@ -134,11 +136,10 @@ def test_minio_wrapper_check_against_real_service():
     if not service_is_configured("minio"):
         pytest.skip("MinIO integration settings are not configured")
 
-    with activated_service_env("minio"):
-        settings = load_service_configs(services={"minio"})
-        client = create_minio_client(settings.minio)
+    minio = MinioIntegrationConfig()
+    client = create_minio_client(minio)
 
-        buckets = client.check()
+    buckets = client.check()
 
     assert buckets is not None
 
@@ -149,11 +150,10 @@ def test_milvus_wrapper_check_against_real_service():
     if not service_is_configured("milvus"):
         pytest.skip("Milvus integration settings are not configured")
 
-    with activated_service_env("milvus"):
-        settings = load_service_configs(services={"milvus"})
-        client = create_milvus_client(settings.milvus)
+    milvus = MilvusIntegrationConfig()
+    client = create_milvus_client(milvus)
 
-        collections = client.check()
+    collections = client.check()
 
     assert collections is not None
 
@@ -164,11 +164,10 @@ def test_ollama_wrapper_check_against_real_service():
     if not service_is_configured("ollama"):
         pytest.skip("Ollama integration settings are not configured")
 
-    with activated_service_env("ollama"):
-        settings = load_service_configs(services={"ollama"})
-        client = create_ollama_client(settings.ollama)
+    ollama = OllamaIntegrationConfig()
+    client = create_ollama_client(ollama)
 
-        response = client.check()
+    response = client.check()
 
     assert response is not None
 
@@ -179,11 +178,10 @@ def test_langfuse_wrapper_check_against_real_service():
     if not service_is_configured("langfuse"):
         pytest.skip("Langfuse integration settings are not configured or disabled")
 
-    with activated_service_env("langfuse"):
-        settings = load_service_configs(services={"langfuse"})
-        client = create_langfuse_client(settings.langfuse)
+    langfuse = LangfuseIntegrationConfig()
+    client = create_langfuse_client(langfuse)
 
-        result = client.check()
+    result = client.check()
 
     assert result is not None
 
@@ -194,10 +192,9 @@ def test_nats_builder_check_against_real_service():
     if not service_is_configured("nats"):
         pytest.skip("NATS integration settings are not configured")
 
-    with activated_service_env("nats"):
-        settings = load_service_configs(services={"nats"})
-        builder = create_nats_client(settings.nats)
+    nats = NatsIntegrationConfig()
+    builder = create_nats_client(nats)
 
-        result = asyncio.run(builder.check())
+    result = asyncio.run(builder.check())
 
     assert result is not None

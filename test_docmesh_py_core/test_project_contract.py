@@ -68,10 +68,11 @@ def test_integration_tests_use_shared_helpers_from_conftest():
     integration_tests = (PROJECT_ROOT / "test_docmesh_py_core" / "test_integration_services.py").read_text(encoding="utf-8")
 
     assert "from test_docmesh_py_core.conftest import" in integration_tests
-    assert "integration_env" in integration_tests
     assert "require_integration_environment" in integration_tests
-    assert "activated_service_env" in integration_tests
     assert "docmesh_env_context" in integration_tests
+    assert "KeycloakIntegrationConfig" in integration_tests
+    assert "PostgresIntegrationConfig" in integration_tests
+    assert "NatsIntegrationConfig" in integration_tests
 
 
 def test_integration_test_module_documents_explicit_docmesh_env_gate():
@@ -173,6 +174,12 @@ def test_integration_helpers_use_integration_settings_object(monkeypatch: pytest
 
     monkeypatch.setattr(test_conftest, "load_service_configs", lambda: FakeIntegrationSettings())
     monkeypatch.setattr(test_conftest, "parse_env_file", lambda _: {})
+    monkeypatch.setattr(test_conftest, "KeycloakIntegrationDiscoveryConfig", FakeKeycloak)
+    monkeypatch.setattr(test_conftest, "KeycloakIntegrationConfig", FakeKeycloak)
+    monkeypatch.setitem(test_conftest.INTEGRATION_SERVICE_CONFIG_CLASSES, "keycloak", FakeKeycloak)
+    monkeypatch.setitem(test_conftest.INTEGRATION_SERVICE_CONFIG_CLASSES, "postgres", FakePostgres)
+    monkeypatch.setitem(test_conftest.INTEGRATION_SERVICE_CONFIG_CLASSES, "langfuse", FakeLangfuse)
+    monkeypatch.setitem(test_conftest.INTEGRATION_SERVICE_CONFIG_CLASSES, "nats", FakeNats)
 
     test_conftest.require_integration_environment()
     assert test_conftest.keycloak_discovery_is_configured() is True
@@ -249,12 +256,12 @@ def test_integration_examples_use_service_specific_keycloak_loader_and_scoped_se
 
     assert 'KeycloakIntegrationDiscoveryConfig' in integration_tests
     assert 'KeycloakIntegrationConfig' in integration_tests
-    assert 'with activated_service_env("postgres"):\n        settings = load_service_configs(services={"postgres"})' in integration_tests
-    assert 'create_postgres_client(settings.postgres)' in integration_tests
+    assert 'postgres = PostgresIntegrationConfig()' in integration_tests
+    assert 'create_postgres_client(postgres)' in integration_tests
     assert 'with docmesh_env_context(' in integration_tests
-    assert 'services={"sqlite"}' in integration_tests
-    assert 'with activated_service_env("nats"):\n        settings = load_service_configs(services={"nats"})' in integration_tests
-    assert 'create_nats_client(settings.nats)' in integration_tests
+    assert 'sqlite = SqliteIntegrationConfig()' in integration_tests
+    assert 'nats = NatsIntegrationConfig()' in integration_tests
+    assert 'create_nats_client(nats)' in integration_tests
 
 
 def test_non_integration_test_modules_declare_documented_pytest_slices():
