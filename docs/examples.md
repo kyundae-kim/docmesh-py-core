@@ -1,6 +1,6 @@
 # docmesh-py-core Examples
 
-이 문서는 `docmesh-py-core`를 실제 애플리케이션에 붙일 때 바로 복사·응용할 수 있는 예시를 제공합니다.
+이 문서는 현재 구현을 기준으로 `docmesh-py-core`를 실제 애플리케이션에 붙일 때 바로 복사·응용할 수 있는 예시를 제공합니다.
 
 - 공개 API 설명은 [api.md](./api.md)
 - 환경변수 계약은 [config.md](./config.md)
@@ -38,6 +38,25 @@ print(token.token_type)
 - aggregate `ServiceConfigs` 전체가 필요 없을 때
 - 특정 서비스 SDK만 직접 구성하고 싶을 때
 - 기능 단위로 config 의존 범위를 줄이고 싶을 때
+
+## 1.2 password grant 예시
+
+```python
+from docmesh_py_core import KeycloakAuthService, KeycloakConfig
+
+keycloak = KeycloakConfig()
+keycloak.token_grant_type = "password"
+
+auth = KeycloakAuthService(keycloak)
+token = auth.fetch_access_token(username="alice", password="wonderland")
+
+print(token.access_token)
+```
+
+포인트:
+
+- 현재 구현은 `KEYCLOAK_TOKEN_USERNAME`, `KEYCLOAK_TOKEN_PASSWORD` 환경변수를 자동 사용하지 않습니다.
+- password grant에서는 함수 인자 `username`, `password`를 넘겨야 합니다.
 
 ## 2. FastAPI startup / shutdown 예시
 
@@ -209,3 +228,19 @@ asyncio.run(builder.check())
 
 - `create_nats_client(...)`는 연결된 클라이언트가 아니라 `NatsConnectionBuilder`를 반환합니다.
 - 실제 연결은 `await builder.connect()` / `await builder.check()` 에서 일어납니다.
+- `builder.check()`는 임시 연결 후 `flush()`를 수행하고 연결을 정리합니다.
+
+## 7. 로깅 설정 예시
+
+```python
+from pathlib import Path
+
+from docmesh_py_core import configure_logging
+
+configure_logging(log_path=Path("./logs/docmesh.log"), force=True)
+```
+
+포인트:
+
+- `level`을 주지 않으면 `DOCMESH_LOG_LEVEL`을 읽습니다.
+- `log_path` 부모 디렉터리는 자동 생성됩니다.
