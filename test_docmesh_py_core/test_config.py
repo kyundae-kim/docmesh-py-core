@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import docmesh_py_core as package_root
 import pytest
 
@@ -26,7 +27,7 @@ from docmesh_py_core.config import (
     validate_runtime_security,
 )
 from docmesh_py_core.security import mask_sensitive_value
-from test_docmesh_py_core.conftest import apply_docmesh_env
+from test_docmesh_py_core.conftest import apply_docmesh_env, keycloak_token_is_configured
 
 
 def build_common_config(env: dict[str, str] | None = None) -> CommonConfig:
@@ -115,6 +116,22 @@ def test_direct_keycloak_discovery_config_reads_process_environment_without_clie
 
 def test_keycloak_config_extends_keycloak_discovery_config():
     assert issubclass(KeycloakConfig, KeycloakDiscoveryConfig)
+
+
+def test_keycloak_token_configuration_helper_uses_integration_keycloak_config():
+    helper_source = inspect.getsource(keycloak_token_is_configured)
+
+    assert "KeycloakIntegrationConfig" in helper_source
+    assert "integration_env().keycloak" not in helper_source
+
+
+def test_keycloak_integration_services_use_integration_specific_config_models():
+    source = (package_root.__path__[0] + "/../test_docmesh_py_core/test_integration_services.py")
+    content = open(source, encoding="utf-8").read()
+
+    assert "KeycloakIntegrationDiscoveryConfig()" in content
+    assert "KeycloakIntegrationConfig()" in content
+    assert "keycloak = KeycloakConfig()" not in content
 
 
 def test_direct_basesettings_construction_reads_process_environment(monkeypatch: pytest.MonkeyPatch):

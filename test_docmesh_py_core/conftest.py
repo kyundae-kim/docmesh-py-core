@@ -262,8 +262,11 @@ def keycloak_discovery_is_configured() -> bool:
 
 
 def keycloak_token_is_configured() -> bool:
-    keycloak = integration_env().keycloak
-    if not keycloak_discovery_is_configured() or not keycloak or not keycloak.client_id:
+    try:
+        keycloak = KeycloakIntegrationConfig()
+    except ValidationError:
+        return False
+    if not keycloak_discovery_is_configured() or not keycloak.client_id:
         return False
     grant_type = keycloak.token_grant_type
     if grant_type == "password":

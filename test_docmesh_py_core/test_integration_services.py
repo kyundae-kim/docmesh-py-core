@@ -6,7 +6,7 @@ from urllib.request import urlopen
 
 import pytest
 
-from docmesh_py_core.config import KeycloakConfig, load_service_configs
+from docmesh_py_core.config import load_service_configs
 from docmesh_py_core.factories import (
     create_langfuse_client,
     create_milvus_client,
@@ -21,6 +21,7 @@ from test_docmesh_py_core.conftest import (
     activated_service_env,
     docmesh_env_context,
     integration_env,
+    KeycloakIntegrationConfig,
     KeycloakIntegrationDiscoveryConfig,
     keycloak_discovery_is_configured,
     keycloak_token_is_configured,
@@ -52,22 +53,20 @@ def test_keycloak_oidc_discovery_endpoint_is_reachable():
 
 @pytest.mark.keycloak
 def test_keycloak_fetch_access_token_against_real_service():
-    require_integration_environment()
     if not keycloak_token_is_configured():
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
-    with activated_service_env("keycloak"):
-        keycloak = KeycloakConfig()
-        auth = KeycloakAuthService(keycloak)
+    keycloak = KeycloakIntegrationConfig()
+    auth = KeycloakAuthService(keycloak)
 
-        fetch_kwargs = {}
-        if keycloak.token_grant_type == "password":
-            fetch_kwargs = {
-                "username": keycloak.token_username,
-                "password": keycloak.token_password,
-            }
+    fetch_kwargs = {}
+    if keycloak.token_grant_type == "password":
+        fetch_kwargs = {
+            "username": keycloak.token_username,
+            "password": keycloak.token_password,
+        }
 
-        token = auth.fetch_access_token(**fetch_kwargs)
+    token = auth.fetch_access_token(**fetch_kwargs)
 
     assert token.access_token
     assert token.token_type
@@ -76,23 +75,21 @@ def test_keycloak_fetch_access_token_against_real_service():
 
 @pytest.mark.keycloak
 def test_keycloak_extract_user_info_from_real_access_token():
-    require_integration_environment()
     if not keycloak_token_is_configured():
         pytest.skip("Keycloak token grant settings are incomplete for integration testing")
 
-    with activated_service_env("keycloak"):
-        keycloak = KeycloakConfig()
-        auth = KeycloakAuthService(keycloak, allowed_algorithms=["RS256"])
+    keycloak = KeycloakIntegrationConfig()
+    auth = KeycloakAuthService(keycloak, allowed_algorithms=["RS256"])
 
-        fetch_kwargs = {}
-        if keycloak.token_grant_type == "password":
-            fetch_kwargs = {
-                "username": keycloak.token_username,
-                "password": keycloak.token_password,
-            }
+    fetch_kwargs = {}
+    if keycloak.token_grant_type == "password":
+        fetch_kwargs = {
+            "username": keycloak.token_username,
+            "password": keycloak.token_password,
+        }
 
-        token = auth.fetch_access_token(**fetch_kwargs)
-        user = auth.extract_user_info(token.access_token)
+    token = auth.fetch_access_token(**fetch_kwargs)
+    user = auth.extract_user_info(token.access_token)
 
     assert user.sub
     assert user.claims["iss"] == auth.issuer
