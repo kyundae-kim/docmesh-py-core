@@ -181,6 +181,8 @@ def test_integration_conftest_no_longer_uses_aggregate_service_loader_for_common
     assert "ServiceConfigs" not in content
     assert "load_service_configs" not in content
     assert "def integration_env(" not in content
+    assert "def activate_service_env(" not in content
+    assert "def activated_service_env(" not in content
     assert "def integration_common_config(" in content
 
 

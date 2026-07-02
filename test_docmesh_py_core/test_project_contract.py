@@ -66,6 +66,7 @@ def test_unit_test_conftest_centralizes_environment_isolation():
 
 def test_integration_tests_use_shared_helpers_from_conftest():
     integration_tests = (PROJECT_ROOT / "test_docmesh_py_core" / "test_integration_services.py").read_text(encoding="utf-8")
+    conftest = (PROJECT_ROOT / "test_docmesh_py_core" / "conftest.py").read_text(encoding="utf-8")
 
     assert "from test_docmesh_py_core.conftest import" in integration_tests
     assert "require_integration_environment" in integration_tests
@@ -73,6 +74,8 @@ def test_integration_tests_use_shared_helpers_from_conftest():
     assert "KeycloakIntegrationConfig" in integration_tests
     assert "PostgresIntegrationConfig" in integration_tests
     assert "NatsIntegrationConfig" in integration_tests
+    assert "activate_service_env" not in conftest
+    assert "activated_service_env" not in conftest
 
 
 def test_integration_test_module_documents_explicit_docmesh_env_gate():

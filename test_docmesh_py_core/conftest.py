@@ -271,21 +271,6 @@ def docmesh_env_context(env: dict[str, str]):
     with pytest.MonkeyPatch.context() as monkeypatch:
         apply_docmesh_env(monkeypatch, env)
         yield env
-
-
-def activate_service_env(monkeypatch: pytest.MonkeyPatch, service_name: str) -> dict[str, str]:
-    env = service_env(service_name)
-    apply_docmesh_env(monkeypatch, env)
-    return env
-
-
-@contextmanager
-def activated_service_env(service_name: str):
-    env = service_env(service_name)
-    with docmesh_env_context(env):
-        yield env
-
-
 def require_integration_environment() -> None:
     current_env = str(integration_common_config().env).strip().lower()
     if current_env != INTEGRATION_ENV_NAME:
